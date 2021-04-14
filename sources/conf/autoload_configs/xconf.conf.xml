@@ -1,0 +1,29 @@
+<configuration name="xconf.conf" description="">
+    <settings>
+        <param name="listener-group-capacity" value="250"/>
+    </settings>
+
+    <!-- multicast/p2p -->
+    <distributed-mode enabled="false" mode="multicast">
+        <param name="shared-secret" value="secret"/>
+        <param name="auth-packets" value="true"/>
+        <param name="encrypt-payload" value="true"/>
+        <param name="local-ip" value="127.0.0.1"/>
+        <param name="remote-ip" value="127.0.0.1"/>
+        <param name="port-in" value="65021"/>
+        <param name="port-out" value="65021"/>
+        <param name="multicast-group" value="224.5.6.7"/>
+    </distributed-mode>
+
+    <conference-profiles>
+        <profile name="default">
+            <param name="ptime" value="20"/>
+            <param name="samplerate" value="8000"/>
+            <param name="conference-idle-time-max" value="0"/>
+            <param name="group-idle-time-max" value="0"/>
+            <param name="disable-transcoding" value="false"/>
+        </profile>
+    </conference-profiles>
+
+</configuration>
+
