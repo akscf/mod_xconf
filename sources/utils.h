@@ -4,6 +4,9 @@
  **/
 #include "mod_xconf.h"
 
+#define MIN(a,b) (((a)<(b))?(a):(b))
+#define MAX(a,b) (((a)>(b))?(a):(b))
+
 #define BIT_SET(a,b)   ((a) |= (1UL<<(b)))
 #define BIT_CLEAR(a,b) ((a) &= ~(1UL<<(b)))
 #define BIT_CHECK(a,b) (!!((a) & (1UL<<(b))))
@@ -15,14 +18,39 @@ uint32_t make_id(char *name, uint32_t len) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
+controls_profile_t *controls_profile_lookup(char *name) {
+    controls_profile_t *profile = NULL;
+
+    if(!name || globals.fl_shutdown) { return NULL; }
+
+    switch_mutex_lock(globals.mutex_controls_profiles);
+    profile = switch_core_hash_find(globals.controls_profiles_hash, name);
+    switch_mutex_unlock(globals.mutex_controls_profiles);
+
+    return profile;
+}
+
+controls_profile_action_t *controls_profile_get_action(controls_profile_t *profile, char *digits) {
+    controls_profile_action_t *action = NULL;
+
+    if(!profile || !digits || profile->fl_destroyed || globals.fl_shutdown) { return NULL; }
+
+    switch_mutex_lock(profile->mutex);
+    action = switch_core_hash_find(profile->actions_hash, digits);
+    switch_mutex_unlock(profile->mutex);
+
+    return action;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
 conference_profile_t *conference_profile_lookup(char *name) {
     conference_profile_t *profile = NULL;
 
     if(!name || globals.fl_shutdown) { return NULL; }
 
-    switch_mutex_lock(globals.mutex_profiles);
-    profile = switch_core_hash_find(globals.conf_profiles_hash, name);
-    switch_mutex_unlock(globals.mutex_profiles);
+    switch_mutex_lock(globals.mutex_conf_profiles);
+    profile = switch_core_hash_find(globals.conferences_profiles_hash, name);
+    switch_mutex_unlock(globals.mutex_conf_profiles);
 
     return profile;
 }
@@ -82,19 +110,15 @@ inline int conference_flag_test(conference_t *confrence, int flag) {
     return BIT_CHECK(confrence->flags, flag);
 }
 
-inline void conference_flag_set(conference_t *confrence, int flag) {
+inline void conference_flag_set(conference_t *confrence, int flag, int val) {
     switch_assert(confrence);
 
     switch_mutex_lock(confrence->mutex_flags);
-    BIT_SET(confrence->flags, flag);
-    switch_mutex_unlock(confrence->mutex_flags);
-}
-
-inline void conference_flag_clear(conference_t *confrence, int flag) {
-    switch_assert(confrence);
-
-    switch_mutex_lock(confrence->mutex_flags);
-    BIT_CLEAR(confrence->flags, flag);
+    if(val) {
+        BIT_SET(confrence->flags, flag);
+    } else {
+        BIT_CLEAR(confrence->flags, flag);
+    }
     switch_mutex_unlock(confrence->mutex_flags);
 }
 
@@ -181,22 +205,17 @@ inline int member_flag_test(member_t *member, int flag) {
 
 }
 
-inline void member_flag_set(member_t *member, int flag) {
+inline void member_flag_set(member_t *member, int flag, int value) {
     switch_assert(member);
 
     switch_mutex_lock(member->mutex_flags);
-    BIT_SET(member->flags, flag);
+    if(value) {
+        BIT_SET(member->flags, flag);
+    } else {
+        BIT_CLEAR(member->flags, flag);
+    }
     switch_mutex_unlock(member->mutex_flags);
 }
-
-inline void member_flag_clear(member_t *member, int flag) {
-    switch_assert(member);
-
-    switch_mutex_lock(member->mutex_flags);
-    BIT_CLEAR(member->flags, flag);
-    switch_mutex_unlock(member->mutex_flags);
-}
-
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 inline int dm_packet_flag_test(dm_packet_hdr_t *packet, int flag) {
@@ -204,14 +223,14 @@ inline int dm_packet_flag_test(dm_packet_hdr_t *packet, int flag) {
     return BIT_CHECK(packet->packet_flags, flag);
 }
 
-inline void dm_packet_flag_set(dm_packet_hdr_t *packet, int flag) {
+inline void dm_packet_flag_set(dm_packet_hdr_t *packet, int flag, int val) {
     switch_assert(packet);
-    BIT_SET(packet->packet_flags, flag);
-}
 
-inline void dm_packet_flag_clear(dm_packet_hdr_t *packet, int flag) {
-    switch_assert(packet);
-    BIT_CLEAR(packet->packet_flags, flag);
+    if(val) {
+        BIT_SET(packet->packet_flags, flag);
+    } else {
+        BIT_CLEAR(packet->packet_flags, flag);
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------

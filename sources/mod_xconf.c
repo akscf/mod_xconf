@@ -6,6 +6,7 @@
 #include "cipher.h"
 #include "dsp.h"
 #include "utils.h"
+#include "commands.h"
 
 globals_t globals;
 
@@ -870,7 +871,7 @@ static void *SWITCH_THREAD_FUNC dm_client_thread(switch_thread_t *thread, void *
                         if(psz > send_buffer_size) { psz = phdr_ptr->payload_len; }
 
                         cipher_encrypt(cipher_ctx, phdr_ptr->packet_id, data_ptr, psz);
-                        dm_packet_flag_set(phdr_ptr, DMPF_ENCRYPTED);
+                        dm_packet_flag_set(phdr_ptr, DMPF_ENCRYPTED, true);
                     }
 
                     bytes = send_len;
@@ -1220,6 +1221,9 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                 stream->write_function(stream, "speakers.................: %i\n", conf->speakers_count);
                 stream->write_function(stream, "conf idle timer..........: %i sec\n", conf->conf_idle_max);
                 stream->write_function(stream, "group idle timer.........: %i sec\n", conf->group_idle_max);
+                stream->write_function(stream, "energy level.............: %i\n", conf->energy_level);
+                stream->write_function(stream, "user controls............: %s\n", conf->user_controls);
+                stream->write_function(stream, "admin controls...........: %s\n", conf->admin_controls);
                 stream->write_function(stream, "flags....................: ---------\n");
                 stream->write_function(stream, "  - use_transcoding......: %i\n", conference_flag_test(conf, CF_USE_TRANSCODING));
                 conference_sem_release(conf);
@@ -1279,8 +1283,9 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                             member = (member_t *) hval2;
 
                             if(member_sem_take(member)) {
-                                stream->write_function(stream, "[%s] (group:%03i, codec: %s, samplerate: %iHz, channels: %i, ptime: %ims, flags: [ %s | %s | %s | %s ])\n",
+                                stream->write_function(stream, "[%s] (group:%03i, codec: %s, samplerate: %iHz, channels: %i, ptime: %ims, volume-in: %i, volume-out: %i, energy: %i, flags: [ %s | %s | %s | %s ])\n",
                                     member->session_id, group->id, member->codec_name, member->samplerate, member->channels, member->ptime,
+                                    member->volume_in_lvl, member->volume_out_lvl, member->energy_level,
                                     (member_flag_test(member, MF_SPEAKER) ? "+speaker" : "-speaker"),
                                     (member_flag_test(member, MF_ADMIN) ? "+admin" : "-admin"),
                                     (member_flag_test(member, MF_MUTED) ? "+muted" : "-muted"),
@@ -1318,8 +1323,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                 char *fl_name = (char *)(argv[i] + 1);
 
                 if(strcasecmp(fl_name, "transcoding") == 0) {
-                    if(fl_op) conference_flag_set(conf, CF_USE_TRANSCODING);
-                    else conference_flag_clear(conf, CF_USE_TRANSCODING);
+                    conference_flag_set(conf, CF_USE_TRANSCODING, fl_op);
                 }
             }
             conference_sem_release(conf);
@@ -1349,7 +1353,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
             }
             if(member_sem_take(member)) {
                 if(strcasecmp(member_cmd, "kick") == 0) {
-                    member_flag_set(member, MF_KICK);
+                    member_flag_set(member, MF_KICK, true);
 
                 } else if(strcasecmp(member_cmd, "flags") == 0) {
                     for(int i = 4; i < argc; i++) {
@@ -1357,17 +1361,13 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                         char *fl_name = (char *)(argv[i] + 1);
 
                         if(strcasecmp(fl_name, "speaker") == 0) {
-                            if(fl_op) member_flag_set(member, MF_SPEAKER);
-                            else member_flag_clear(member, MF_SPEAKER);
+                            member_flag_set(member, MF_SPEAKER, fl_op);
                         } else if(strcasecmp(fl_name, "admin") == 0) {
-                            if(fl_op) member_flag_set(member, MF_ADMIN);
-                            else member_flag_clear(member, MF_ADMIN);
+                            member_flag_set(member, MF_ADMIN, fl_op);
                         } else if(strcasecmp(fl_name, "mute") == 0) {
-                            if(fl_op) member_flag_set(member, MF_MUTED);
-                            else member_flag_clear(member, MF_MUTED);
+                            member_flag_set(member, MF_MUTED, fl_op);
                         } else if(strcasecmp(fl_name, "deaf") == 0) {
-                            if(fl_op) member_flag_set(member, MF_DEAF);
-                            else member_flag_clear(member, MF_DEAF);
+                            member_flag_set(member, MF_DEAF, fl_op);
                         }
                     }
                 } else {
@@ -1412,14 +1412,18 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     conference_profile_t *conf_profile  = NULL;
     member_t *member = NULL;
     member_group_t *group = NULL;
+    controls_profile_t *ctl_profile = NULL;
+    controls_profile_action_t *ctl_action = NULL;
     switch_codec_implementation_t read_impl = { 0 };
     switch_codec_implementation_t write_impl = { 0 };
     switch_frame_t write_frame = { 0 };
     switch_timer_t timer = { 0 };
+    char dtmf_buffer[32] = { 0 };
     char *conference_name = NULL, *profile_name = NULL;
-    uint32_t samples_per_ptime = 0, au_buffer_id_local = 0;
+    uint32_t samples_per_ptime = 0, au_buffer_id_local = 0, dtmf_buf_pos = 0;
     uint32_t member_flags_old = 0;
     uint32_t conference_id;
+    time_t dtmf_timer = 0;
 
     if (!zstr(data)) {
         mycmd = strdup(data);
@@ -1441,7 +1445,6 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     switch_mutex_lock(globals.mutex_conferences);
     conference = switch_core_inthash_find(globals.conferences_hash, conference_id);
     if(!conference) {
-
         conf_profile = conference_profile_lookup(profile_name);
         if(!conf_profile) {
             switch_mutex_unlock(globals.mutex_conferences);
@@ -1481,14 +1484,13 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         conference->ptime = conf_profile->ptime;
         conference->conf_idle_max = conf_profile->conf_idle_max;
         conference->group_idle_max = conf_profile->group_idle_max;
+        conference->energy_level = conf_profile->energy_level;
+        conference->user_controls = controls_profile_lookup(conf_profile->user_controls);
+        conference->admin_controls = controls_profile_lookup(conf_profile->admin_controls);
         conference->flags = 0x0;
         conference->fl_ready = false;
 
-        if(conf_profile->disable_transcoding) {
-            conference_flag_clear(conference, CF_USE_TRANSCODING);
-        } else {
-            conference_flag_set(conference, CF_USE_TRANSCODING);
-        }
+        conference_flag_set(conference, CF_USE_TRANSCODING, conf_profile->transcoding_enabled);
 
         launch_thread(pool_tmp, conference_control_thread, conference);
         launch_thread(pool_tmp, conference_audio_capture_thread, conference);
@@ -1569,17 +1571,13 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         char *fl_name = (char *)(argv[i] + 1);
 
         if(strcasecmp(fl_name, "speaker") == 0) {
-            if(fl_op) member_flag_set(member, MF_SPEAKER);
-            else member_flag_clear(member, MF_SPEAKER);
+            member_flag_set(member, MF_SPEAKER, fl_op);
         } else if(strcasecmp(fl_name, "admin") == 0) {
-            if(fl_op) member_flag_set(member, MF_ADMIN);
-            else member_flag_clear(member, MF_ADMIN);
+            member_flag_set(member, MF_ADMIN, fl_op);
          } else if(strcasecmp(fl_name, "mute") == 0) {
-            if(fl_op) member_flag_set(member, MF_MUTED);
-            else member_flag_clear(member, MF_MUTED);
+            member_flag_set(member, MF_MUTED, fl_op);
          } else if(strcasecmp(fl_name, "deaf") == 0) {
-            if(fl_op) member_flag_set(member, MF_DEAF);
-            else member_flag_clear(member, MF_DEAF);
+             member_flag_set(member, MF_DEAF, fl_op);
          }
     }
 
@@ -1593,14 +1591,18 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     /* take semaphore */
     conference_sem_take(conference);
 
+    /* copy conf settings */
+    member->user_controls = conference->user_controls;
+    member->admin_controls = conference->admin_controls;
+    member->energy_level = conference->energy_level;
+
     /* increase membr counter */
     switch_mutex_lock(conference->mutex);
     switch_core_hash_insert(conference->members_idx_hash, member->session_id, member);
     conference->members_count++;
     switch_mutex_unlock(conference->mutex);
 
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "member '%s' joined to '%s' [group: %03i]\n", member->session_id, conference->name, group->id
-    );
+    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "member '%s' joined to '%s' [group: %03i]\n", member->session_id, conference->name, group->id);
 
     switch_channel_audio_sync(channel);
 
@@ -1633,21 +1635,56 @@ SWITCH_STANDARD_APP(xconf_app_api) {
 
         /* dtmf */
         if (switch_channel_has_dtmf(channel)) {
-            char dtmf_buf[32] = { 0 };
-            switch_size_t dtmf_len = 0;
-            if((dtmf_len = switch_channel_dequeue_dtmf_string(channel, dtmf_buf, sizeof(dtmf_buf))) > 0) {
-                //dtmf_buf[dtmf_len >= sizeof(dtmf_buf) ? dtmf_len - 1 : dtmf_len] = 0x0;
+            if(!ctl_profile) {
+                ctl_profile = (member_flag_test(member, MF_ADMIN) ? member->admin_controls : member->user_controls);
+            }
+            if(ctl_profile && !ctl_profile->fl_destroyed) {
+                uint8_t clr_buf = false;
+                uint32_t dtmf_len = 0;
+                char *p = (char *) dtmf_buffer;
+                /* get dtmf code */
+                dtmf_len = switch_channel_dequeue_dtmf_string(channel, (p + dtmf_buf_pos), (sizeof(dtmf_buffer) - dtmf_buf_pos));
+                if(dtmf_len > 0) {
+                    dtmf_buf_pos += dtmf_len;
+
+                    if(dtmf_buf_pos >= sizeof(dtmf_buffer)) {
+                        clr_buf = true;
+                    } else {
+                        if(dtmf_buf_pos >= ctl_profile->digits_len_max) {
+                            dtmf_buffer[dtmf_buf_pos] = '\0';
+                            ctl_action = controls_profile_get_action(ctl_profile, (char *)dtmf_buffer);
+                            clr_buf = (ctl_action == NULL ? true : false);
+                        } else {
+                            // todo: start timer
+                        }
+                    }
+                    if(clr_buf) {
+                        memset((char *)dtmf_buffer, 0, sizeof(dtmf_buffer));
+                        clr_buf = false;
+                        dtmf_buf_pos = 0;
+                        ctl_profile = NULL;
+                        ctl_action = NULL;
+                    }
+                    if(ctl_action) {
+                        if(ctl_action->fnc(conference, member, ctl_action) != SWITCH_STATUS_SUCCESS) {
+                            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "DTMF action fail\n");
+                        }
+                        memset((char *)dtmf_buffer, 0, sizeof(dtmf_buffer));
+                        dtmf_buf_pos = 0;
+                        ctl_profile = NULL;
+                        ctl_action = NULL;
+                    }
+                }
             }
         }
 
         /* check flags */
         if(member_flags_old != member->flags) {
-            switch_mutex_lock(member->mutex_flags);
-
             if(member_flag_test(member, MF_KICK)) {
                 break;
             }
-
+            /* lock for complex op */
+            switch_mutex_lock(member->mutex_flags);
             if(member_flag_test(member, MF_SPEAKER) != BIT_CHECK(member_flags_old, MF_SPEAKER)) {
                 if(member_flag_test(member, MF_SPEAKER)) {
                     switch_mutex_lock(conference->mutex_speakers);
@@ -1741,26 +1778,29 @@ out:
 #define CONFIG_NAME "xconf.conf"
 SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
     switch_status_t status = SWITCH_STATUS_SUCCESS;
-    switch_xml_t cfg, xml, settings, param, dmsettings, conf_profiles_xml, conf_profile_xml;
+    switch_xml_t cfg, xml, settings, param, dmsettings, conf_profiles_xml, conf_profile_xml, ctl_profiles_xml, ctl_profile_xml, ctl_xml;
     switch_api_interface_t *commands_interface;
     switch_application_interface_t *app_interface;
-    uint32_t config_version = 0;
 
     memset(&globals, 0, sizeof (globals));
+
     switch_core_inthash_init(&globals.conferences_hash);
-    switch_core_inthash_init(&globals.conf_profiles_hash);
+    switch_core_hash_init(&globals.conferences_profiles_hash);
+    switch_core_hash_init(&globals.controls_profiles_hash);
+
     switch_mutex_init(&globals.mutex, SWITCH_MUTEX_NESTED, pool);
     switch_mutex_init(&globals.mutex_conferences, SWITCH_MUTEX_NESTED, pool);
-    switch_mutex_init(&globals.mutex_profiles, SWITCH_MUTEX_NESTED, pool);
+    switch_mutex_init(&globals.mutex_conf_profiles, SWITCH_MUTEX_NESTED, pool);
+    switch_mutex_init(&globals.mutex_controls_profiles, SWITCH_MUTEX_NESTED, pool);
 
     globals.dm_node_id = rand();
     globals.fl_dm_enabled = false;
     globals.fl_dm_auth_enabled = true;
     globals.fl_dm_encrypt_payload = true;
+    globals.listener_group_capacity = 250;
     globals.audio_cache_size = 5;
     globals.local_queue_size = 16;
     globals.dm_queue_size = 28;
-    globals.listener_group_capacity = 250;
     globals.dm_port_in = 65021;
     globals.dm_port_out = 65021;
 
@@ -1776,8 +1816,6 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
 
             if(!strcasecmp(var, "listener-group-capacity")) {
                 globals.listener_group_capacity = atoi(val);
-            } else if(!strcasecmp(var, "config-version")) {
-                config_version = atoi(val);
             }
         }
     }
@@ -1813,12 +1851,86 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
         }
     }
 
+    if((ctl_profiles_xml = switch_xml_child(cfg, "controls-profiles"))) {
+        for (ctl_profile_xml = switch_xml_child(ctl_profiles_xml, "profile"); ctl_profile_xml; ctl_profile_xml = ctl_profile_xml->next) {
+            switch_memory_pool_t *tmp_pool = NULL;
+            controls_profile_t *ctl_profile = NULL;
+
+            char *name = (char *) switch_xml_attr_soft(ctl_profile_xml, "name");
+
+            if(!name) { continue; }
+
+            if(switch_core_hash_find(globals.controls_profiles_hash, name)) {
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Duplicated profile name: %s\n", name);
+                continue;
+            }
+
+            /* create a new pool for each profile */
+            if (switch_core_new_memory_pool(&tmp_pool) != SWITCH_STATUS_SUCCESS) {
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+                switch_goto_status(SWITCH_STATUS_GENERR, done);
+            }
+
+            if((ctl_profile = switch_core_alloc(tmp_pool, sizeof(controls_profile_t))) == NULL) {
+                switch_core_destroy_memory_pool(&tmp_pool);
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+                switch_goto_status(SWITCH_STATUS_GENERR, done);
+            }
+
+            switch_core_hash_init(&ctl_profile->actions_hash);
+            switch_mutex_init(&ctl_profile->mutex, SWITCH_MUTEX_NESTED, tmp_pool);
+
+            ctl_profile->name = switch_core_strdup(tmp_pool, name);
+            ctl_profile->pool = tmp_pool;
+            ctl_profile->fl_destroyed = false;
+            ctl_profile->digits_len_max = 0;
+            ctl_profile->digits_len_min = 1;
+
+            for (ctl_xml = switch_xml_child(ctl_profile_xml, "control"); ctl_xml; ctl_xml = ctl_xml->next) {
+                controls_profile_action_t *profile_action = NULL;
+                char *digits = (char *) switch_xml_attr_soft(ctl_xml, "digits");
+                char *action = (char *) switch_xml_attr_soft(ctl_xml, "action");
+
+                if(!digits || !action) { continue; }
+
+                if(switch_core_hash_find(ctl_profile->actions_hash, digits)) {
+                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Duplicated action: %s (profile: %s)\n", digits, ctl_profile->name);
+                    continue;
+                }
+
+                if((profile_action = switch_core_alloc(tmp_pool, sizeof(controls_profile_action_t))) == NULL) {
+                    switch_core_destroy_memory_pool(&tmp_pool);
+                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+                    switch_goto_status(SWITCH_STATUS_GENERR, done);
+                }
+
+                ctl_profile->digits_len_max = MAX(ctl_profile->digits_len_max, strlen(digits));
+
+                profile_action->digits = switch_core_strdup(tmp_pool, digits);
+
+                if(conf_action_parse(action, ctl_profile, profile_action) != SWITCH_STATUS_SUCCESS) {
+                    switch_core_destroy_memory_pool(&tmp_pool);
+                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Unsupported action: %s\n", action);
+                    switch_goto_status(SWITCH_STATUS_GENERR, done);
+                }
+
+                /* add action into profile */
+                switch_core_hash_insert(ctl_profile->actions_hash, profile_action->digits, profile_action);
+            }
+
+            /* add control profile */
+            switch_core_hash_insert(globals.controls_profiles_hash, ctl_profile->name, ctl_profile);
+        }
+    }
+
     if((conf_profiles_xml = switch_xml_child(cfg, "conference-profiles"))) {
         for (conf_profile_xml = switch_xml_child(conf_profiles_xml, "profile"); conf_profile_xml; conf_profile_xml = conf_profile_xml->next) {
             conference_profile_t *conf_profile = NULL;
             char *name = (char *) switch_xml_attr_soft(conf_profile_xml, "name");
 
-            if(switch_core_hash_find(globals.conf_profiles_hash, name)) {
+            if(!name) { continue; }
+
+            if(switch_core_hash_find(globals.conferences_profiles_hash, name)) {
                 switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Duplicated profile name: %s\n", name);
                 continue;
             }
@@ -1829,16 +1941,17 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             }
 
             conf_profile->name = switch_core_strdup(pool, name);
-            conf_profile->disable_transcoding = false;
+            conf_profile->transcoding_enabled = false;
             conf_profile->conf_idle_max = 0;
             conf_profile->group_idle_max = 0;
+            conf_profile->energy_level = 0;
 
             for (param = switch_xml_child(conf_profile_xml, "param"); param; param = param->next) {
                 char *var = (char *) switch_xml_attr_soft(param, "name");
                 char *val = (char *) switch_xml_attr_soft(param, "value");
 
-                if(!strcasecmp(var, "disable-transcoding")) {
-                    conf_profile->disable_transcoding = (strcasecmp(val, "true") == 0 ? true : false);
+                if(!strcasecmp(var, "transcoding-enable")) {
+                    conf_profile->transcoding_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "conference-idle-time-max")) {
                     conf_profile->conf_idle_max = atoi(val);
                 } else if(!strcasecmp(var, "group-idle-time-max")) {
@@ -1847,6 +1960,12 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                     conf_profile->samplerate = atoi(val);
                 } else if(!strcasecmp(var, "ptime")) {
                     conf_profile->ptime = atoi(val);
+                } else if(!strcasecmp(var, "energy-level")) {
+                    conf_profile->energy_level = atoi(val);
+                } else if(!strcasecmp(var, "admin-controls")) {
+                    conf_profile->admin_controls = switch_core_strdup(pool, val);
+                } else if(!strcasecmp(var, "user-controls")) {
+                    conf_profile->user_controls = switch_core_strdup(pool, val);
                 }
             }
 
@@ -1857,7 +1976,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                 conf_profile->ptime = 20;
             }
 
-            switch_core_hash_insert(globals.conf_profiles_hash, conf_profile->name, conf_profile);
+            switch_core_hash_insert(globals.conferences_profiles_hash, conf_profile->name, conf_profile);
         }
     }
 
@@ -1923,7 +2042,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
     globals.fl_shutdown = false;
 
     if(globals.fl_dm_enabled) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "xconf (%s) [distributed mode] [node: 0x%X / %s / encryption: %s ]\n", XCONF_VERSION, globals.dm_node_id, globals.dm_mode_name, (globals.fl_dm_encrypt_payload ? "on" : "off"));
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "xconf (%s) [distributed mode] [node-id: %X / %s / encryption: %s ]\n", XCONF_VERSION, globals.dm_node_id, globals.dm_mode_name, (globals.fl_dm_encrypt_payload ? "on" : "off"));
     } else {
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "xconf (%s) [standalone mode]\n", XCONF_VERSION);
     }
@@ -1955,9 +2074,9 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_xconf_shutdown) {
         }
     }
 
+    /* conferences hash */
     switch_mutex_lock(globals.mutex_conferences);
     while ((hidx = switch_core_hash_first_iter(globals.conferences_hash, hidx))) {
-
         switch_core_hash_this(hidx, NULL, NULL, &hval);
         conference_t *conf = (conference_t *) hval;
 
@@ -1967,15 +2086,28 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_xconf_shutdown) {
         }
     }
     switch_safe_free(hidx);
-    switch_mutex_unlock(globals.mutex_conferences);
-
-    switch_mutex_lock(globals.mutex_conferences);
     switch_core_inthash_destroy(&globals.conferences_hash);
     switch_mutex_unlock(globals.mutex_conferences);
 
-    switch_mutex_lock(globals.mutex_profiles);
-    switch_core_hash_destroy(&globals.conf_profiles_hash);
-    switch_mutex_unlock(globals.mutex_profiles);
+    /* conferences profiles hash */
+    switch_mutex_lock(globals.mutex_conf_profiles);
+    switch_core_hash_destroy(&globals.conferences_profiles_hash);
+    switch_mutex_unlock(globals.mutex_conf_profiles);
+
+    /* controls hash */
+    switch_mutex_lock(globals.mutex_controls_profiles);
+    while ((hidx = switch_core_hash_first_iter(globals.controls_profiles_hash, hidx))) {
+        switch_core_hash_this(hidx, NULL, NULL, &hval);
+        controls_profile_t *profile = (controls_profile_t *) hval;
+
+        if(!profile->fl_destroyed) {
+            switch_core_hash_delete(globals.controls_profiles_hash, profile->name);
+            switch_core_destroy_memory_pool(&profile->pool);
+        }
+    }
+    switch_safe_free(hidx);
+    switch_core_hash_destroy(&globals.controls_profiles_hash);
+    switch_mutex_unlock(globals.mutex_controls_profiles);
 
     return SWITCH_STATUS_SUCCESS;
 }

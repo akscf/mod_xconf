@@ -15,13 +15,33 @@
         <param name="multicast-group" value="224.5.6.7"/>
     </distributed-mode>
 
+    <controls-profiles>
+        <profile name="default">
+            <control digits="#" action="hangup"/>
+            <control digits="*" action="deaf"/>
+            <control digits="0" action="deaf-mute"/>
+            <control digits="9" action="energy:+1"/>
+            <control digits="8" action="energy:0"/>
+            <control digits="7" action="energy:-1" />
+            <control digits="3" action="vol-talk:+1"/>
+            <control digits="2" action="vol-talk:0"/>
+            <control digits="1" action="vol-talk:-1" />
+            <control digits="6" action="vol-listen:+1"/>
+            <control digits="5" action="vol-listen:0"/>
+            <control digits="4" action="vol-listen:-1"/>
+        </profile>
+    </controls-profiles>
+
     <conference-profiles>
         <profile name="default">
             <param name="ptime" value="20"/>
             <param name="samplerate" value="8000"/>
             <param name="conference-idle-time-max" value="0"/>
             <param name="group-idle-time-max" value="0"/>
-            <param name="disable-transcoding" value="false"/>
+            <param name="energy-level" value="300"/>
+            <param name="admin-controls" value="default"/>
+            <param name="user-controls" value="default"/>
+            <param name="enable-transcoding" value="true"/>
         </profile>
     </conference-profiles>
 

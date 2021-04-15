@@ -49,9 +49,11 @@
 typedef struct {
     switch_mutex_t          *mutex;
     switch_mutex_t          *mutex_conferences;
-    switch_mutex_t          *mutex_profiles;
+    switch_mutex_t          *mutex_conf_profiles;
+    switch_mutex_t          *mutex_controls_profiles;
     switch_inthash_t        *conferences_hash;
-    switch_hash_t           *conf_profiles_hash;
+    switch_hash_t           *conferences_profiles_hash;
+    switch_hash_t           *controls_profiles_hash;
     uint32_t                active_threads;
     uint32_t                audio_cache_size;
     uint32_t                listener_group_capacity;
@@ -76,6 +78,22 @@ typedef struct {
 } globals_t;
 
 typedef struct {
+    uint8_t                 fl_destroyed;
+    uint8_t                 digits_len_min;
+    uint8_t                 digits_len_max;
+    char                    *name;
+    switch_memory_pool_t    *pool;
+    switch_mutex_t          *mutex;
+    switch_hash_t           *actions_hash;      // (controls_profile_action_t)
+} controls_profile_t;
+
+typedef struct {
+    char                    *digits;
+    char                    *args;
+    switch_status_t (*fnc)(void *conference_ref, void *member_ref, void *action_ref);
+} controls_profile_action_t;
+
+typedef struct {
     uint8_t                 fl_ready;           //
     uint8_t                 fl_destroyed;       //
     uint8_t                 fl_au_rdy_wr;       //
@@ -85,6 +103,9 @@ typedef struct {
     uint32_t                channels;           //
     uint32_t                ptime;              //
     uint32_t                tx_sem;             //
+    uint32_t                volume_in_lvl;      //
+    uint32_t                volume_out_lvl;     //
+    uint32_t                energy_level;       //
     const char              *session_id;        //
     const char              *codec_name;        //
     switch_memory_pool_t    *pool;              // session pool
@@ -94,6 +115,8 @@ typedef struct {
     switch_core_session_t   *session;           //
     switch_codec_t          *read_codec;        //
     switch_codec_t          *write_codec;       //
+    controls_profile_t      *admin_controls;    //
+    controls_profile_t      *user_controls;     //
     //
     uint32_t                au_buffer_id;       //
     uint32_t                au_data_len;        //
@@ -110,6 +133,7 @@ typedef struct {
     uint32_t                capacity;           //
     uint32_t                free;               //
     uint32_t                tx_sem;             //
+    uint32_t                energy_level;       //
     switch_memory_pool_t    *pool;              // group own pool
     switch_mutex_t          *mutex;             //
     switch_mutex_t          *mutex_members;     //
@@ -130,6 +154,7 @@ typedef struct {
     uint32_t                members_seq;        //
     uint32_t                conf_idle_max;      //
     uint32_t                group_idle_max;     //
+    uint32_t                energy_level;       //
     uint32_t                samplerate;         //
     uint32_t                ptime;              //
     uint32_t                id;                 //
@@ -146,15 +171,20 @@ typedef struct {
     switch_queue_t          *commands_q_in;     // (audio_tranfser_buffer_t)
     switch_queue_t          *audio_q_in;        // (audio_tranfser_buffer_t)
     switch_queue_t          *audio_q_out;       // (audio_tranfser_buffer_t)
+    controls_profile_t      *admin_controls;    //
+    controls_profile_t      *user_controls;     //
 } conference_t;
 
 typedef struct {
     char                    *name;
+    char                    *admin_controls;
+    char                    *user_controls;
     uint32_t                samplerate;
     uint32_t                ptime;
     uint32_t                conf_idle_max;      // seconds
     uint32_t                group_idle_max;     // seconds
-    uint8_t                 disable_transcoding;
+    uint32_t                energy_level;
+    uint8_t                 transcoding_enabled;
 } conference_profile_t;
 
 typedef struct {
