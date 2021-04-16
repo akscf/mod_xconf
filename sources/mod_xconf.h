@@ -19,6 +19,8 @@
 #define XCONF_VERSION                           "1.7"
 #define XCONF_CONFIG_VERSION                    1
 #define NET_ANYADDR                             "0.0.0.0"
+#define DTMF_CMD_LEN_MAX                        10
+#define DTMF_BUFFER_SIZE                        DTMF_CMD_LEN_MAX + 1
 
 #define DM_PAYLOAD_AUDIO                        0xAA
 #define DM_PAYLOAD_COMMAND                      0xAB
@@ -103,9 +105,9 @@ typedef struct {
     uint32_t                channels;           //
     uint32_t                ptime;              //
     uint32_t                tx_sem;             //
-    uint32_t                volume_in_lvl;      //
-    uint32_t                volume_out_lvl;     //
-    uint32_t                energy_level;       //
+    int32_t                 volume_in_lvl;      //
+    int32_t                 volume_out_lvl;     //
+    int32_t                 energy_level;       //
     const char              *session_id;        //
     const char              *codec_name;        //
     switch_memory_pool_t    *pool;              // session pool
@@ -154,7 +156,7 @@ typedef struct {
     uint32_t                members_seq;        //
     uint32_t                conf_idle_max;      //
     uint32_t                group_idle_max;     //
-    uint32_t                energy_level;       //
+    int32_t                 energy_level;       //
     uint32_t                samplerate;         //
     uint32_t                ptime;              //
     uint32_t                id;                 //
@@ -183,7 +185,7 @@ typedef struct {
     uint32_t                ptime;
     uint32_t                conf_idle_max;      // seconds
     uint32_t                group_idle_max;     // seconds
-    uint32_t                energy_level;
+    int32_t                 energy_level;
     uint8_t                 transcoding_enabled;
 } conference_profile_t;
 

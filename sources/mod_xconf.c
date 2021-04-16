@@ -1418,7 +1418,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     switch_codec_implementation_t write_impl = { 0 };
     switch_frame_t write_frame = { 0 };
     switch_timer_t timer = { 0 };
-    char dtmf_buffer[32] = { 0 };
+    char dtmf_buffer[DTMF_BUFFER_SIZE] = { 0 };
     char *conference_name = NULL, *profile_name = NULL;
     uint32_t samples_per_ptime = 0, au_buffer_id_local = 0, dtmf_buf_pos = 0;
     uint32_t member_flags_old = 0;
@@ -1634,7 +1634,21 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         }
 
         /* dtmf */
-        if (switch_channel_has_dtmf(channel)) {
+        if(dtmf_timer && dtmf_timer <= switch_epoch_time_now(NULL)) {
+            if(dtmf_buf_pos >= 1) {
+                dtmf_buffer[dtmf_buf_pos] = '\0';
+                if((ctl_action = controls_profile_get_action(ctl_profile, (char *)dtmf_buffer)) != NULL) {
+                    if(ctl_action->fnc(conference, member, ctl_action) != SWITCH_STATUS_SUCCESS) {
+                        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "DTMF action fail\n");
+                    }
+                }
+            }
+            ctl_profile = NULL;
+            ctl_action = NULL;
+            dtmf_buf_pos = dtmf_timer = 0;
+            memset((char *)dtmf_buffer, 0, DTMF_BUFFER_SIZE);
+        }
+        if(switch_channel_has_dtmf(channel)) {
             if(!ctl_profile) {
                 ctl_profile = (member_flag_test(member, MF_ADMIN) ? member->admin_controls : member->user_controls);
             }
@@ -1642,37 +1656,34 @@ SWITCH_STANDARD_APP(xconf_app_api) {
                 uint8_t clr_buf = false;
                 uint32_t dtmf_len = 0;
                 char *p = (char *) dtmf_buffer;
-                /* get dtmf code */
-                dtmf_len = switch_channel_dequeue_dtmf_string(channel, (p + dtmf_buf_pos), (sizeof(dtmf_buffer) - dtmf_buf_pos));
+
+                dtmf_len = switch_channel_dequeue_dtmf_string(channel, (p + dtmf_buf_pos), (DTMF_BUFFER_SIZE - dtmf_buf_pos));
                 if(dtmf_len > 0) {
                     dtmf_buf_pos += dtmf_len;
 
-                    if(dtmf_buf_pos >= sizeof(dtmf_buffer)) {
-                        clr_buf = true;
-                    } else {
-                        if(dtmf_buf_pos >= ctl_profile->digits_len_max) {
-                            dtmf_buffer[dtmf_buf_pos] = '\0';
-                            ctl_action = controls_profile_get_action(ctl_profile, (char *)dtmf_buffer);
-                            clr_buf = (ctl_action == NULL ? true : false);
-                        } else {
-                            // todo: start timer
-                        }
+                    if(!dtmf_timer && ctl_profile->digits_len_max > 1) {
+                        dtmf_timer = switch_epoch_time_now(NULL) + 1; // delay 1s
+                    }
+                    if(dtmf_buf_pos >= ctl_profile->digits_len_max) {
+                        dtmf_buffer[dtmf_buf_pos] = '\0';
+                        ctl_action = controls_profile_get_action(ctl_profile, (char *)dtmf_buffer);
+                        clr_buf = (ctl_action == NULL ? true : false);
                     }
                     if(clr_buf) {
-                        memset((char *)dtmf_buffer, 0, sizeof(dtmf_buffer));
                         clr_buf = false;
-                        dtmf_buf_pos = 0;
                         ctl_profile = NULL;
                         ctl_action = NULL;
+                        dtmf_buf_pos = dtmf_timer = 0;
+                        memset((char *)dtmf_buffer, 0, DTMF_BUFFER_SIZE);
                     }
                     if(ctl_action) {
                         if(ctl_action->fnc(conference, member, ctl_action) != SWITCH_STATUS_SUCCESS) {
                             switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "DTMF action fail\n");
                         }
-                        memset((char *)dtmf_buffer, 0, sizeof(dtmf_buffer));
-                        dtmf_buf_pos = 0;
                         ctl_profile = NULL;
                         ctl_action = NULL;
+                        dtmf_buf_pos = dtmf_timer = 0;
+                        memset((char *)dtmf_buffer, 0, DTMF_BUFFER_SIZE);
                     }
                 }
             }
@@ -1898,13 +1909,18 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                     continue;
                 }
 
+                ctl_profile->digits_len_max = MAX(ctl_profile->digits_len_max, strlen(digits));
+                if(ctl_profile->digits_len_max > DTMF_CMD_LEN_MAX) {
+                    switch_core_destroy_memory_pool(&tmp_pool);
+                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "command is to long: '%s' (max: %i)\n", digits, DTMF_CMD_LEN_MAX);
+                    switch_goto_status(SWITCH_STATUS_GENERR, done);
+                }
+
                 if((profile_action = switch_core_alloc(tmp_pool, sizeof(controls_profile_action_t))) == NULL) {
                     switch_core_destroy_memory_pool(&tmp_pool);
                     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
                     switch_goto_status(SWITCH_STATUS_GENERR, done);
                 }
-
-                ctl_profile->digits_len_max = MAX(ctl_profile->digits_len_max, strlen(digits));
 
                 profile_action->digits = switch_core_strdup(tmp_pool, digits);
 

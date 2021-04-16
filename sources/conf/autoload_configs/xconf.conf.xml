@@ -20,9 +20,9 @@
             <control digits="#" action="hangup"/>
             <control digits="*" action="deaf"/>
             <control digits="0" action="deaf-mute"/>
-            <control digits="9" action="energy:+1"/>
+            <control digits="9" action="energy:+100"/>
             <control digits="8" action="energy:0"/>
-            <control digits="7" action="energy:-1" />
+            <control digits="7" action="energy:-100" />
             <control digits="3" action="vol-talk:+1"/>
             <control digits="2" action="vol-talk:0"/>
             <control digits="1" action="vol-talk:-1" />
