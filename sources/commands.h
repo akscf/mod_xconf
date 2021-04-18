@@ -63,7 +63,10 @@ switch_status_t member_cmd_energy_adj(void *conference_ref, void *member_ref, vo
     if(ival == 0) {
         member->energy_level = conference->energy_level;
     } else {
-        member->energy_level += ival;
+        int32_t tmp = (member->energy_level + ival);
+        if (tmp > -2 && tmp < 1801) {
+            member->energy_level = tmp;
+        }
     }
 
     return SWITCH_STATUS_SUCCESS;
@@ -83,7 +86,10 @@ switch_status_t member_cmd_vol_talk_adj(void *conference_ref, void *member_ref, 
     if(ival == 0) {
         member->volume_out_lvl = 0;
     } else {
-        member->volume_out_lvl += ival;
+        int32_t tmp = (member->volume_out_lvl + ival);
+        if(tmp > -5 && tmp < 5) {
+            member->volume_out_lvl = tmp;
+        }
     }
 
     return SWITCH_STATUS_SUCCESS;
@@ -103,7 +109,10 @@ switch_status_t member_cmd_vol_listen_adj(void *conference_ref, void *member_ref
     if(ival == 0) {
         member->volume_in_lvl = 0;
     } else {
-        member->volume_in_lvl += ival;
+        int32_t tmp = (member->volume_in_lvl + ival);
+        if(tmp > -5 && tmp < 5) {
+            member->volume_in_lvl = tmp;
+        }
     }
 
     return SWITCH_STATUS_SUCCESS;

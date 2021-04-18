@@ -229,6 +229,13 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                                         fl_has_audio_local = true;
                                     }
                                 }
+                                /* adjust volume level */
+                                if(fl_has_audio_local && speaker->volume_out_lvl) {
+                                    switch_change_sln_volume((int16_t *)src_buffer, ((src_buffer_len / 2) * speaker->channels), speaker->volume_out_lvl);
+                                }
+                                /* calc evergy level */
+
+
                             } else {
                                 memcpy(src_buffer, read_frame->data, read_frame->datalen);
                                 src_buffer_len = read_frame->datalen;
@@ -465,11 +472,12 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
                                 uint32_t enc_buffer_len = AUDIO_BUFFER_SIZE;
                                 uint32_t cur_members_count = (group->capacity - group->free);
 
+                                /* find in cache */
                                 if(audio_cache_size && cur_members_count > 1) {
                                     uint32_t cname_len = 0;
                                     char cname_buf[128];
 
-                                    cname_len = snprintf((char *)cname_buf, sizeof(cname_buf), "%s%X%X%X", member->codec_name, member->samplerate, member->channels, atbuf->id);
+                                    cname_len = snprintf((char *)cname_buf, sizeof(cname_buf), "%s%X%X%X%X", member->codec_name, member->samplerate, member->channels, member->volume_in_lvl, atbuf->id);
                                     cache_id = make_id((char *)cname_buf, cname_len);
 
                                     for(int i = 0; i < globals.audio_cache_size; i++) {
@@ -484,6 +492,13 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
                                     }
                                 }
                                 if(!skip_encode) {
+
+                                    /* adjust volume level */
+                                    if(member->volume_in_lvl) {
+                                        switch_change_sln_volume((int16_t *)atbuf->data, ((atbuf->data_len / 2) * member->channels), member->volume_in_lvl);
+                                    }
+
+                                    /* encode buffer */
                                     if(switch_core_codec_ready(member->write_codec)) {
                                         if(switch_core_codec_encode(member->write_codec, NULL, atbuf->data, atbuf->data_len, atbuf->samplerate, enc_buffer, &enc_buffer_len, &enc_smprt, &flags) == SWITCH_STATUS_SUCCESS) {
                                             if(audio_cache_size && cur_members_count > 1) {
@@ -1646,7 +1661,6 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             ctl_profile = NULL;
             ctl_action = NULL;
             dtmf_buf_pos = dtmf_timer = 0;
-            memset((char *)dtmf_buffer, 0, DTMF_BUFFER_SIZE);
         }
         if(switch_channel_has_dtmf(channel)) {
             if(!ctl_profile) {
@@ -1674,7 +1688,6 @@ SWITCH_STANDARD_APP(xconf_app_api) {
                         ctl_profile = NULL;
                         ctl_action = NULL;
                         dtmf_buf_pos = dtmf_timer = 0;
-                        memset((char *)dtmf_buffer, 0, DTMF_BUFFER_SIZE);
                     }
                     if(ctl_action) {
                         if(ctl_action->fnc(conference, member, ctl_action) != SWITCH_STATUS_SUCCESS) {
@@ -1689,12 +1702,12 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             }
         }
 
-        /* check flags */
+        /* flags */
         if(member_flags_old != member->flags) {
             if(member_flag_test(member, MF_KICK)) {
                 break;
             }
-            /* lock for complex op */
+            /* complex op */
             switch_mutex_lock(member->mutex_flags);
             if(member_flag_test(member, MF_SPEAKER) != BIT_CHECK(member_flags_old, MF_SPEAKER)) {
                 if(member_flag_test(member, MF_SPEAKER)) {
@@ -1716,7 +1729,6 @@ SWITCH_STANDARD_APP(xconf_app_api) {
                     switch_mutex_unlock(conference->mutex);
                 }
             }
-
             member_flags_old = member->flags;
             switch_mutex_unlock(member->mutex_flags);
         }
