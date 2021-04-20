@@ -49,7 +49,7 @@ switch_status_t member_cmd_deaf_mute(void *conference_ref, void *member_ref, voi
     return SWITCH_STATUS_SUCCESS;
 }
 
-switch_status_t member_cmd_energy_adj(void *conference_ref, void *member_ref, void *action_ref) {
+switch_status_t member_cmd_vox_level_adj(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -61,14 +61,13 @@ switch_status_t member_cmd_energy_adj(void *conference_ref, void *member_ref, vo
 
     ival = atoi(action->args);
     if(ival == 0) {
-        member->energy_level = conference->energy_level;
+        member->vox_activate_lvl = conference->vox_activate_lvl;
     } else {
-        int32_t tmp = (member->energy_level + ival);
+        int32_t tmp = (member->vox_activate_lvl + ival);
         if (tmp > -2 && tmp < 1801) {
-            member->energy_level = tmp;
+            member->vox_activate_lvl = tmp;
         }
     }
-
     return SWITCH_STATUS_SUCCESS;
 }
 
@@ -216,9 +215,9 @@ switch_status_t conf_action_parse(char *action_str, controls_profile_t *profile,
     } else if(strcasecmp(action_str, "deaf-mute") == 0) {
         action->args = NULL;
         action->fnc = member_cmd_deaf_mute;
-    } else if(strncasecmp(action_str, "energy:", 7) == 0) {
-        action->args = switch_core_strdup(profile->pool, action_str + 7);
-        action->fnc = member_cmd_energy_adj;
+    } else if(strncasecmp(action_str, "vox:", 4) == 0) {
+        action->args = switch_core_strdup(profile->pool, action_str + 4);
+        action->fnc = member_cmd_vox_level_adj;
     } else if(strncasecmp(action_str, "vol-talk:", 9) == 0) {
         action->args = switch_core_strdup(profile->pool, action_str + 9);
         action->fnc = member_cmd_vol_talk_adj;

@@ -229,12 +229,21 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                                         fl_has_audio_local = true;
                                     }
                                 }
+
                                 /* adjust volume level */
                                 if(fl_has_audio_local && speaker->volume_out_lvl) {
                                     switch_change_sln_volume((int16_t *)src_buffer, ((src_buffer_len / 2) * speaker->channels), speaker->volume_out_lvl);
                                 }
-                                /* calc evergy level */
 
+                                /* agc */
+                                if(member_flag_test(speaker, MF_AGC)) {
+                                    // todo
+                                }
+
+                                /* vox */
+                                if(conference_flag_test(conference, CF_USE_VOX) && member_flag_test(speaker, MF_VOX)) {
+                                    // todo
+                                }
 
                             } else {
                                 memcpy(src_buffer, read_frame->data, read_frame->datalen);
@@ -1160,7 +1169,7 @@ static void event_handler_shutdown(switch_event_t *event) {
     }
 }
 
-#define CMD_SYNTAX "list - show conferences\n<confname> term - terminate the conferece\n<confname> show [status|groups|memebers]\n<confname> flags [+-][transcoding]\n<confname> memeber <uuid> kick|flags[+-|speaker|admin|mute|deaf]\n"
+#define CMD_SYNTAX "list - show conferences\n<confname> term - terminate the conferece\n<confname> show [status|groups|memebers]\n<confname> flags [+-][transcoding|vox|cng]\n<confname> memeber <uuid> kick|flags[+-|speaker|admin|mute|deaf|vox|agc]\n"
 SWITCH_STANDARD_API(xconf_cmd_function) {
    char *mycmd = NULL, *argv[10] = { 0 };
     int argc = 0;
@@ -1192,10 +1201,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                 conference_t *conf = (conference_t *)hval;
 
                 if(conference_sem_take(conf)) {
-                    stream->write_function(stream, "%s [0x%X / %iHz / %ims] (members: %i, speakes: %i, conf_idle_max=%i, group_idle_max=%i) [use_transcoding=%i]\n",
-                        conf->name, conf->id, conf->samplerate, conf->ptime, conf->members_count, conf->speakers_count, conf->conf_idle_max, conf->group_idle_max,
-                        conference_flag_test(conf, CF_USE_TRANSCODING)
-                    );
+                    stream->write_function(stream, "%s [0x%X / %iHz / %ims] (members: %i, speakes: %i)\n", conf->name, conf->id, conf->samplerate, conf->ptime, conf->members_count, conf->speakers_count);
                     conference_sem_release(conf);
                     total++;
                 }
@@ -1236,11 +1242,14 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                 stream->write_function(stream, "speakers.................: %i\n", conf->speakers_count);
                 stream->write_function(stream, "conf idle timer..........: %i sec\n", conf->conf_idle_max);
                 stream->write_function(stream, "group idle timer.........: %i sec\n", conf->group_idle_max);
-                stream->write_function(stream, "energy level.............: %i\n", conf->energy_level);
+                stream->write_function(stream, "vox level................: %i\n", conf->vox_activate_lvl);
+                stream->write_function(stream, "cng level................: %i\n", conf->comfort_noise_lvl);
                 stream->write_function(stream, "user controls............: %s\n", conf->user_controls);
                 stream->write_function(stream, "admin controls...........: %s\n", conf->admin_controls);
                 stream->write_function(stream, "flags....................: ---------\n");
-                stream->write_function(stream, "  - use_transcoding......: %i\n", conference_flag_test(conf, CF_USE_TRANSCODING));
+                stream->write_function(stream, "  - transcoding..........: %i\n", conference_flag_test(conf, CF_USE_TRANSCODING));
+                stream->write_function(stream, "  - vox..................: %i\n", conference_flag_test(conf, CF_USE_VOX));
+                stream->write_function(stream, "  - cng..................: %i\n", conference_flag_test(conf, CF_USE_CNG));
                 conference_sem_release(conf);
             }
             goto out;
@@ -1298,13 +1307,15 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                             member = (member_t *) hval2;
 
                             if(member_sem_take(member)) {
-                                stream->write_function(stream, "[%s] (group:%03i, codec: %s, samplerate: %iHz, channels: %i, ptime: %ims, volume-in: %i, volume-out: %i, energy: %i, flags: [ %s | %s | %s | %s ])\n",
+                                stream->write_function(stream, "[%s] (group:%03i, codec: %s, samplerate: %iHz, channels: %i, ptime: %ims, volume-in: %i, volume-out: %i, vox-level: %i, flags: [ %s | %s | %s | %s | %s | %s ])\n",
                                     member->session_id, group->id, member->codec_name, member->samplerate, member->channels, member->ptime,
-                                    member->volume_in_lvl, member->volume_out_lvl, member->energy_level,
+                                    member->volume_in_lvl, member->volume_out_lvl, member->vox_activate_lvl,
                                     (member_flag_test(member, MF_SPEAKER) ? "+speaker" : "-speaker"),
                                     (member_flag_test(member, MF_ADMIN) ? "+admin" : "-admin"),
                                     (member_flag_test(member, MF_MUTED) ? "+muted" : "-muted"),
-                                    (member_flag_test(member, MF_DEAF) ? "+deaf" : "-deaf")
+                                    (member_flag_test(member, MF_DEAF) ? "+deaf" : "-deaf"),
+                                    (member_flag_test(member, MF_VOX) ? "+vox" : "-vox"),
+                                    (member_flag_test(member, MF_AGC) ? "+agc" : "-agc")
                                 );
                                 member_sem_release(member);
                                 total++;
@@ -1327,19 +1338,14 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
     /* conference flags */
     if(strcasecmp(conf_cmd, "flags") == 0) {
         if(argc <= 2) {
-            stream->write_function(stream, "flags:  %s \n",
-                conference_flag_test(conf, CF_USE_TRANSCODING)
-            );
-            goto out;
+            goto usage;
         }
         if(conference_sem_take(conf)) {
             for(int i = 2; i < argc; i++) {
                 uint8_t fl_op= (argv[i][0] == '+' ? true : false);
                 char *fl_name = (char *)(argv[i] + 1);
 
-                if(strcasecmp(fl_name, "transcoding") == 0) {
-                    conference_flag_set(conf, CF_USE_TRANSCODING, fl_op);
-                }
+                conference_parse_flags(conf, fl_name, fl_op);
             }
             conference_sem_release(conf);
         }
@@ -1372,18 +1378,10 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
 
                 } else if(strcasecmp(member_cmd, "flags") == 0) {
                     for(int i = 4; i < argc; i++) {
-                        uint8_t fl_op= (argv[i][0] == '+' ? true : false);
+                        uint8_t fl_op = (argv[i][0] == '+' ? true : false);
                         char *fl_name = (char *)(argv[i] + 1);
 
-                        if(strcasecmp(fl_name, "speaker") == 0) {
-                            member_flag_set(member, MF_SPEAKER, fl_op);
-                        } else if(strcasecmp(fl_name, "admin") == 0) {
-                            member_flag_set(member, MF_ADMIN, fl_op);
-                        } else if(strcasecmp(fl_name, "mute") == 0) {
-                            member_flag_set(member, MF_MUTED, fl_op);
-                        } else if(strcasecmp(fl_name, "deaf") == 0) {
-                            member_flag_set(member, MF_DEAF, fl_op);
-                        }
+                        member_parse_flags(member, fl_name, fl_op);
                     }
                 } else {
                     show_usage = true;
@@ -1433,10 +1431,11 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     switch_codec_implementation_t write_impl = { 0 };
     switch_frame_t write_frame = { 0 };
     switch_timer_t timer = { 0 };
+    switch_byte_t *cn_buffer = NULL;
     char dtmf_buffer[DTMF_BUFFER_SIZE] = { 0 };
     char *conference_name = NULL, *profile_name = NULL;
-    uint32_t samples_per_ptime = 0, au_buffer_id_local = 0, dtmf_buf_pos = 0;
-    uint32_t member_flags_old = 0;
+    uint32_t au_buffer_id_local = 0, dtmf_buf_pos = 0;
+    uint32_t member_flags_old = 0, cn_buffer_size = 0;
     uint32_t conference_id;
     time_t dtmf_timer = 0;
 
@@ -1463,7 +1462,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         conf_profile = conference_profile_lookup(profile_name);
         if(!conf_profile) {
             switch_mutex_unlock(globals.mutex_conferences);
-            switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "Unknown conference profile: '%s'\n", profile_name);
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Unknown conference profile: '%s'\n", profile_name);
             switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Profile not found!");
             switch_goto_status(SWITCH_STATUS_SUCCESS, out);
         }
@@ -1492,20 +1491,23 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         switch_core_inthash_init(&conference->listeners);
         switch_core_hash_init(&conference->members_idx_hash);
 
-        conference->pool = pool_tmp;
         conference->id = conference_id;
+        conference->pool = pool_tmp;
         conference->name = switch_core_strdup(pool_tmp, conference_name);
         conference->samplerate = conf_profile->samplerate;
         conference->ptime = conf_profile->ptime;
         conference->conf_idle_max = conf_profile->conf_idle_max;
         conference->group_idle_max = conf_profile->group_idle_max;
-        conference->energy_level = conf_profile->energy_level;
+        conference->vox_activate_lvl = conf_profile->vox_activate_lvl;
+        conference->comfort_noise_lvl = conf_profile->comfort_noise_level;
         conference->user_controls = controls_profile_lookup(conf_profile->user_controls);
         conference->admin_controls = controls_profile_lookup(conf_profile->admin_controls);
         conference->flags = 0x0;
         conference->fl_ready = false;
 
         conference_flag_set(conference, CF_USE_TRANSCODING, conf_profile->transcoding_enabled);
+        conference_flag_set(conference, CF_USE_VOX, conf_profile->vox_enabled);
+        conference_flag_set(conference, CF_USE_CNG, conf_profile->cn_enabled);
 
         launch_thread(pool_tmp, conference_control_thread, conference);
         launch_thread(pool_tmp, conference_audio_capture_thread, conference);
@@ -1557,7 +1559,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
 
     session_id = member->session_id;
     write_frame.data = switch_core_session_alloc(session, AUDIO_BUFFER_SIZE);
-    samples_per_ptime = (((read_impl.samples_per_second / 1000) * member->ptime) * read_impl.number_of_channels);
+    member->samples_ptime = (((read_impl.samples_per_second / 1000) * member->ptime) * read_impl.number_of_channels);
 
     if(!member->read_codec || !member->write_codec) {
         switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s: channel has no media\n", session_id);
@@ -1569,7 +1571,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Not enough memory!");
         goto out;
     }
-    if(samples_per_ptime > AUDIO_BUFFER_SIZE) {
+    if(member->samples_ptime > AUDIO_BUFFER_SIZE) {
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "oops: samples_per_ptime > %i (hangup session: %s)\n", AUDIO_BUFFER_SIZE, session_id);
         switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Wrong buffer size!");
         goto out;
@@ -1580,20 +1582,19 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         goto out;
     }
 
+    /* comfort noises */
+    cn_buffer_size = (member->samples_ptime * 2);
+    cn_buffer = switch_core_session_alloc(session, cn_buffer_size);
+
     /* flags */
+    member_flag_set(member, MF_VOX, conference_flag_test(conference, CF_USE_VOX));
+    member_flag_set(member, MF_AGC, conference_flag_test(conference, CF_USE_VOX));
+
     for(int i = 2; i < argc; i++) {
-        uint8_t fl_op= (argv[i][0] == '+' ? true : false);
+        uint8_t fl_op = (argv[i][0] == '+' ? true : false);
         char *fl_name = (char *)(argv[i] + 1);
 
-        if(strcasecmp(fl_name, "speaker") == 0) {
-            member_flag_set(member, MF_SPEAKER, fl_op);
-        } else if(strcasecmp(fl_name, "admin") == 0) {
-            member_flag_set(member, MF_ADMIN, fl_op);
-         } else if(strcasecmp(fl_name, "mute") == 0) {
-            member_flag_set(member, MF_MUTED, fl_op);
-         } else if(strcasecmp(fl_name, "deaf") == 0) {
-             member_flag_set(member, MF_DEAF, fl_op);
-         }
+        member_parse_flags(member, fl_name, fl_op);
     }
 
     if(listener_join_to_group(&group, conference, member) != SWITCH_STATUS_SUCCESS) {
@@ -1609,7 +1610,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     /* copy conf settings */
     member->user_controls = conference->user_controls;
     member->admin_controls = conference->admin_controls;
-    member->energy_level = conference->energy_level;
+    member->vox_activate_lvl = conference->vox_activate_lvl;
 
     /* increase membr counter */
     switch_mutex_lock(conference->mutex);
@@ -1634,8 +1635,8 @@ SWITCH_STANDARD_APP(xconf_app_api) {
 
             write_frame.codec = member->write_codec;
             write_frame.buflen = member->au_data_len;
-            write_frame.datalen = samples_per_ptime;
-            write_frame.samples = samples_per_ptime;
+            write_frame.datalen = member->samples_ptime;
+            write_frame.samples = member->samples_ptime;
 
             memcpy(write_frame.data, member->au_buffer, member->au_data_len);
             au_buffer_id_local = member->au_buffer_id;
@@ -1646,6 +1647,20 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             switch_mutex_lock(member->mutex_audio);
             member->fl_au_rdy_wr = true;
             switch_mutex_unlock(member->mutex_audio);
+        } else {
+            if(conference_flag_test(conference, CF_USE_CNG)) {
+                uint32_t bytes = cn_buffer_size;
+
+                if((member_generate_silence(conference, member, cn_buffer, &bytes) == SWITCH_STATUS_SUCCESS) && bytes > 0) {
+                    write_frame.codec = member->write_codec;
+                    write_frame.buflen = bytes;
+                    write_frame.datalen = member->samples_ptime;
+                    write_frame.samples = member->samples_ptime;
+
+                    memcpy(write_frame.data, cn_buffer, bytes);
+                    switch_core_session_write_frame(session, &write_frame, SWITCH_IO_FLAG_NONE, 0);
+                }
+            }
         }
 
         /* dtmf */
@@ -1969,10 +1984,13 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             }
 
             conf_profile->name = switch_core_strdup(pool, name);
-            conf_profile->transcoding_enabled = false;
+            conf_profile->transcoding_enabled = true;
+            conf_profile->vox_enabled = false;
+            conf_profile->cn_enabled = false;
             conf_profile->conf_idle_max = 0;
             conf_profile->group_idle_max = 0;
-            conf_profile->energy_level = 0;
+            conf_profile->comfort_noise_level = 0;
+            conf_profile->vox_activate_lvl = 0;
 
             for (param = switch_xml_child(conf_profile_xml, "param"); param; param = param->next) {
                 char *var = (char *) switch_xml_attr_soft(param, "name");
@@ -1980,6 +1998,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
 
                 if(!strcasecmp(var, "transcoding-enable")) {
                     conf_profile->transcoding_enabled = (strcasecmp(val, "true") == 0 ? true : false);
+                } else if(!strcasecmp(var, "vox-enable")) {
+                    conf_profile->vox_enabled = (strcasecmp(val, "true") == 0 ? true : false);
+                } else if(!strcasecmp(var, "comfort-noise-enable")) {
+                    conf_profile->cn_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "conference-idle-time-max")) {
                     conf_profile->conf_idle_max = atoi(val);
                 } else if(!strcasecmp(var, "group-idle-time-max")) {
@@ -1988,8 +2010,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                     conf_profile->samplerate = atoi(val);
                 } else if(!strcasecmp(var, "ptime")) {
                     conf_profile->ptime = atoi(val);
-                } else if(!strcasecmp(var, "energy-level")) {
-                    conf_profile->energy_level = atoi(val);
+                } else if(!strcasecmp(var, "vox-level")) {
+                    conf_profile->vox_activate_lvl = atoi(val);
+                } else if(!strcasecmp(var, "comfort-noise-level")) {
+                    conf_profile->comfort_noise_level = atoi(val);
                 } else if(!strcasecmp(var, "admin-controls")) {
                     conf_profile->admin_controls = switch_core_strdup(pool, val);
                 } else if(!strcasecmp(var, "user-controls")) {
@@ -1997,6 +2021,16 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                 }
             }
 
+            if(conf_profile->vox_activate_lvl) {
+                if(conf_profile->vox_activate_lvl > -2 || conf_profile->vox_activate_lvl > 1801) {
+                    conf_profile->vox_activate_lvl = 300;
+                }
+            }
+            if(conf_profile->comfort_noise_level) {
+                if(conf_profile->comfort_noise_level < 1 || conf_profile->comfort_noise_level > 10000) {
+                    conf_profile->comfort_noise_level = 1400;
+                }
+            }
             if(conf_profile->samplerate <= 0) {
                 conf_profile->samplerate = 8000;
             }

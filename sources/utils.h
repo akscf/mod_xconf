@@ -147,6 +147,24 @@ void conference_sem_release(conference_t *conference) {
     switch_mutex_unlock(conference->mutex);
 }
 
+switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, uint8_t fl_op) {
+    switch_status_t status = SWITCH_STATUS_SUCCESS;
+
+    switch_assert(conference);
+
+    if(strcasecmp(fl_name, "transcoding") == 0) {
+        conference_flag_set(conference, CF_USE_TRANSCODING, fl_op);
+    } else if(strcasecmp(fl_name, "vox") == 0) {
+        conference_flag_set(conference, CF_USE_VOX, fl_op);
+    } else if(strcasecmp(fl_name, "cng") == 0) {
+        conference_flag_set(conference, CF_USE_CNG, fl_op);
+    } else {
+        status = SWITCH_STATUS_FALSE;
+    }
+
+    return status;
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 uint32_t group_sem_take(member_group_t *group) {
     uint32_t status = false;
@@ -215,6 +233,52 @@ inline void member_flag_set(member_t *member, int flag, int value) {
         BIT_CLEAR(member->flags, flag);
     }
     switch_mutex_unlock(member->mutex_flags);
+}
+
+switch_status_t member_parse_flags(member_t *member, char *fl_name, uint8_t fl_op) {
+    switch_status_t status = SWITCH_STATUS_SUCCESS;
+
+    switch_assert(member);
+
+    if(strcasecmp(fl_name, "speaker") == 0) {
+        member_flag_set(member, MF_SPEAKER, fl_op);
+    } else if(strcasecmp(fl_name, "admin") == 0) {
+        member_flag_set(member, MF_ADMIN, fl_op);
+    } else if(strcasecmp(fl_name, "mute") == 0) {
+        member_flag_set(member, MF_MUTED, fl_op);
+    } else if(strcasecmp(fl_name, "deaf") == 0) {
+        member_flag_set(member, MF_DEAF, fl_op);
+    } else if(strcasecmp(fl_name, "vox") == 0) {
+        member_flag_set(member, MF_VOX, fl_op);
+    } else if(strcasecmp(fl_name, "agc") == 0) {
+        member_flag_set(member, MF_AGC, fl_op);
+    } else {
+        status = SWITCH_STATUS_FALSE;
+    }
+
+    return status;
+}
+
+/* forbidden to use it out of the member thread context (not thread-safe) */
+switch_status_t member_generate_silence(conference_t *conference, member_t *member, switch_byte_t *buffer, uint32_t *buffer_size) {
+    switch_byte_t tmp[AUDIO_BUFFER_SIZE] = { 0 };
+    switch_status_t status = SWITCH_STATUS_SUCCESS;
+    uint32_t data_len = member->samples_ptime * 2;
+    uint32_t enc_smprt = member->samplerate;
+    uint32_t enc_buffer_len = (uint32_t) *buffer_size;
+    uint32_t flags = 0;
+
+    if(conference->comfort_noise_lvl) {
+        switch_generate_sln_silence((int16_t *)tmp, member->samples_ptime, member->channels, (conference->comfort_noise_lvl * (conference->samplerate / 8000)) );
+    } else {
+        memset(tmp, 0xff, data_len);
+    }
+
+    if(switch_core_codec_ready(member->write_codec)) {
+        status = switch_core_codec_encode(member->write_codec, NULL, tmp, data_len, member->samplerate, buffer, buffer_size, &enc_smprt, &flags);
+    }
+
+    return status;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
