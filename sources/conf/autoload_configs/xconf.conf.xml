@@ -20,9 +20,9 @@
             <control digits="#" action="hangup"/>
             <control digits="*" action="deaf"/>
             <control digits="0" action="deaf-mute"/>
-            <control digits="9" action="vox:+100"/>
-            <control digits="8" action="vox:0"/>
-            <control digits="7" action="vox:-100" />
+            <control digits="9" action="vad-level:+100"/>
+            <control digits="8" action="vad-level:0"/>
+            <control digits="7" action="vad-level:-100" />
             <control digits="3" action="vol-talk:+1"/>
             <control digits="2" action="vol-talk:0"/>
             <control digits="1" action="vol-talk:-1" />
@@ -39,8 +39,8 @@
             <param name="conference-idle-time-max" value="0"/>
             <param name="group-idle-time-max" value="0"/>
             <param name="transcoding-enable" value="true"/>
-            <param name="vox-enable" value="true"/>
-            <param name="vox-level" value="300"/>
+            <param name="vad-enable" value="true"/>
+            <param name="vad-level" value="300"/>
             <param name="comfort-noise-enable" value="true"/>
             <param name="comfort-noise-level" value="140"/>
             <param name="admin-controls" value="default"/>

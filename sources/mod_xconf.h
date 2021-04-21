@@ -41,16 +41,17 @@
 #define DMPF_ENCRYPTED                          1
 
 #define CF_USE_TRANSCODING                      1
-#define CF_USE_VOX                              2
+#define CF_USE_VAD                              2
 #define CF_USE_CNG                              3
 
-#define MF_VOX                                  1
+#define MF_VAD                                  1
 #define MF_AGC                                  2
 #define MF_SPEAKER                              3
 #define MF_ADMIN                                4
 #define MF_MUTED                                5
 #define MF_DEAF                                 6
 #define MF_KICK                                 7
+#define MF_SPEAKING                             8
 
 typedef struct {
     switch_mutex_t          *mutex;
@@ -112,8 +113,9 @@ typedef struct {
     uint32_t                tx_sem;             //
     int32_t                 volume_in_lvl;      //
     int32_t                 volume_out_lvl;     //
-    int32_t                 vox_activate_lvl;   //
-    int32_t                 vox_fade_hits;      //
+    int32_t                 vad_lvl;            //
+    int32_t                 vad_score;          //
+    int32_t                 vad_fade_hits;      //
     const char              *session_id;        //
     const char              *codec_name;        //
     switch_memory_pool_t    *pool;              // session pool
@@ -162,7 +164,7 @@ typedef struct {
     uint32_t                conf_idle_max;      //
     uint32_t                group_idle_max;     //
     int32_t                 comfort_noise_lvl;  //
-    int32_t                 vox_activate_lvl;   //
+    int32_t                 vad_lvl;            //
     uint32_t                samplerate;         //
     uint32_t                ptime;              //
     uint32_t                id;                 //
@@ -191,10 +193,10 @@ typedef struct {
     uint32_t                ptime;
     uint32_t                conf_idle_max;      // seconds
     uint32_t                group_idle_max;     // seconds
-    int32_t                 vox_activate_lvl;
+    int32_t                 vad_level;
     int32_t                 comfort_noise_level;
-    uint8_t                 vox_enabled;
-    uint8_t                 cn_enabled;
+    uint8_t                 vad_enabled;
+    uint8_t                 cng_enabled;
     uint8_t                 transcoding_enabled;
 } conference_profile_t;
 

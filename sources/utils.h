@@ -154,8 +154,8 @@ switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, 
 
     if(strcasecmp(fl_name, "transcoding") == 0) {
         conference_flag_set(conference, CF_USE_TRANSCODING, fl_op);
-    } else if(strcasecmp(fl_name, "vox") == 0) {
-        conference_flag_set(conference, CF_USE_VOX, fl_op);
+    } else if(strcasecmp(fl_name, "vad") == 0) {
+        conference_flag_set(conference, CF_USE_VAD, fl_op);
     } else if(strcasecmp(fl_name, "cng") == 0) {
         conference_flag_set(conference, CF_USE_CNG, fl_op);
     } else {
@@ -248,8 +248,8 @@ switch_status_t member_parse_flags(member_t *member, char *fl_name, uint8_t fl_o
         member_flag_set(member, MF_MUTED, fl_op);
     } else if(strcasecmp(fl_name, "deaf") == 0) {
         member_flag_set(member, MF_DEAF, fl_op);
-    } else if(strcasecmp(fl_name, "vox") == 0) {
-        member_flag_set(member, MF_VOX, fl_op);
+    } else if(strcasecmp(fl_name, "vad") == 0) {
+        member_flag_set(member, MF_VAD, fl_op);
     } else if(strcasecmp(fl_name, "agc") == 0) {
         member_flag_set(member, MF_AGC, fl_op);
     } else {
@@ -270,12 +270,10 @@ switch_status_t member_generate_silence(conference_t *conference, member_t *memb
 
     if(conference->comfort_noise_lvl) {
         switch_generate_sln_silence((int16_t *)tmp, member->samples_ptime, member->channels, (conference->comfort_noise_lvl * (conference->samplerate / 8000)) );
-    } else {
-        memset(tmp, 0xff, data_len);
-    }
 
-    if(switch_core_codec_ready(member->write_codec)) {
-        status = switch_core_codec_encode(member->write_codec, NULL, tmp, data_len, member->samplerate, buffer, buffer_size, &enc_smprt, &flags);
+        if(switch_core_codec_ready(member->write_codec)) {
+            status = switch_core_codec_encode(member->write_codec, NULL, tmp, data_len, member->samplerate, buffer, buffer_size, &enc_smprt, &flags);
+        }
     }
 
     return status;
