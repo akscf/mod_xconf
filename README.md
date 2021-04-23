@@ -4,7 +4,7 @@
 </p>
 
 # Basic featues
- - possible to work in a standalone mode (without distributed mode features)
+ - possible to work in a standalone mode
  - data exchange (with encryption) using multicast or p2p communication
  - truncated redundant transcoding (by reuse encoding results for the similar listeners)
  - fast lockings and maximum parallel processing
