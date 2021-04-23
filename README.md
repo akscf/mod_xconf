@@ -5,8 +5,7 @@
 
 # Basic featues
  - possible to work in a standalone mode (without distributed mode features)
- - data exchange using multicast or p2p communication
- - traffic encryption (optional)
+ - data exchange (with encryption) using multicast or p2p communication
  - truncated redundant transcoding (by reuse encoding results for the similar listeners)
  - fast lockings and maximum parallel processing
  - managing conferences by DTMF (separate profiles for admins and regular users)
