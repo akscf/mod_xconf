@@ -158,6 +158,8 @@ switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, 
         conference_flag_set(conference, CF_USE_VAD, fl_op);
     } else if(strcasecmp(fl_name, "cng") == 0) {
         conference_flag_set(conference, CF_USE_CNG, fl_op);
+    } else if(strcasecmp(fl_name, "agc") == 0) {
+        conference_flag_set(conference, CF_USE_AGC, fl_op);
     } else {
         status = SWITCH_STATUS_FALSE;
     }

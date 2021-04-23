@@ -64,10 +64,39 @@ switch_status_t member_cmd_vad_level_adj(void *conference_ref, void *member_ref,
         member->vad_lvl = conference->vad_lvl;
     } else {
         int32_t tmp = (member->vad_lvl + ival);
-        if (tmp > -2 && tmp < 1801) {
+        if (tmp >= 0 && tmp < 1800) {
             member->vad_lvl = tmp;
         }
     }
+    return SWITCH_STATUS_SUCCESS;
+}
+
+switch_status_t member_cmd_agc_level_adj(void *conference_ref, void *member_ref, void *action_ref) {
+    controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
+    conference_t *conference = (conference_t *) conference_ref;
+    member_t *member = (member_t *) member_ref;
+    int ival = 0;
+
+    if(zstr(action->args)) {
+       return SWITCH_STATUS_FALSE;
+    }
+
+    ival = atoi(action->args);
+    if(ival == 0) {
+        member->agc_lvl = conference->agc_lvl;
+    } else {
+        int32_t tmp = (member->agc_lvl + ival);
+        if (tmp >= 0 && tmp < 1800) {
+            member->agc_lvl = tmp;
+        }
+    }
+
+    switch_mutex_lock(member->mutex_agc);
+    if(member->agc) {
+        switch_agc_set(member->agc, member->agc_lvl, conference->agc_low_lvl, conference->agc_margin, conference->agc_change_factor, conference->agc_period_len);
+    }
+    switch_mutex_unlock(member->mutex_agc);
+
     return SWITCH_STATUS_SUCCESS;
 }
 
@@ -152,8 +181,6 @@ switch_status_t member_cmd_call_api(void *conference_ref, void *member_ref, void
         return SWITCH_STATUS_FALSE;
     }
 
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "API: conference=%s, members=%s, args=%s\n", conference->name, member->session_id, action->args);
-
     cmd = action->args;
     ptr = action->args;
     while (*ptr++) {
@@ -183,8 +210,6 @@ switch_status_t member_cmd_exec_app(void *conference_ref, void *member_ref, void
     if(zstr(action->args)) {
         return SWITCH_STATUS_FALSE;
     }
-
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "EXEC: conference=%s, members=%s, args=%s\n", conference->name, member->session_id, action->args);
 
     cmd = action->args;
     ptr = action->args;
@@ -218,6 +243,9 @@ switch_status_t conf_action_parse(char *action_str, controls_profile_t *profile,
     } else if(strncasecmp(action_str, "vad-level:", 10) == 0) {
         action->args = switch_core_strdup(profile->pool, action_str + 10);
         action->fnc = member_cmd_vad_level_adj;
+    } else if(strncasecmp(action_str, "agc-level:", 10) == 0) {
+        action->args = switch_core_strdup(profile->pool, action_str + 10);
+        action->fnc = member_cmd_agc_level_adj;
     } else if(strncasecmp(action_str, "vol-talk:", 9) == 0) {
         action->args = switch_core_strdup(profile->pool, action_str + 9);
         action->fnc = member_cmd_vol_talk_adj;

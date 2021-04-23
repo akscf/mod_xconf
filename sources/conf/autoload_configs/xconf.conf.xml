@@ -42,7 +42,9 @@
             <param name="vad-enable" value="true"/>
             <param name="vad-level" value="300"/>
             <param name="comfort-noise-enable" value="true"/>
-            <param name="comfort-noise-level" value="140"/>
+            <param name="comfort-noise-level" value="120"/>
+            <param name="agc-enable" value="false"/>
+            <param name="agc-data" value="0:0:3:20"/>
             <param name="admin-controls" value="default"/>
             <param name="user-controls" value="default"/>
         </profile>

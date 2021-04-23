@@ -235,13 +235,8 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                                     switch_change_sln_volume((int16_t *)src_buffer, ((src_buffer_len / 2) * speaker->channels), speaker->volume_out_lvl);
                                 }
 
-                                /* agc */
-                                if(member_flag_test(speaker, MF_AGC)) {
-                                    // todo
-                                }
-
                                 /* vad */
-                                if(speaker->vad_fade_hits <= 0) {
+                                if(!speaker->vad_fade_hits) {
                                     if(fl_has_audio_local && conference_flag_test(conference, CF_USE_VAD) && member_flag_test(speaker, MF_VAD)) {
                                         int16_t *smpbuf = (int16_t *)src_buffer;
                                         uint32_t smps = src_buffer_len / sizeof(*smpbuf);
@@ -263,13 +258,25 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                                         }
                                     }
                                 } else {
+                                    // todo: correct fade effect
                                     speaker->vad_fade_hits--;
                                 }
+
+                                /* agc */
+                                if(member_flag_test(speaker, MF_AGC)) {
+                                    if(speaker->agc) {
+                                        switch_mutex_lock(speaker->mutex_agc);
+                                        switch_agc_feed(speaker->agc, (int16_t *)src_buffer, ((src_buffer_len / 2) * speaker->channels), speaker->channels);
+                                        switch_mutex_unlock(speaker->mutex_agc);
+                                   }
+                                }
+
                             } else {
                                 memcpy(src_buffer, read_frame->data, read_frame->datalen);
                                 src_buffer_len = read_frame->datalen;
                                 mix_buf_channels = speaker->channels;
                                 fl_has_audio_local = true;
+                                member_flag_set(speaker, MF_SPEAKING, true);
                             }
                         }
                     }
@@ -574,7 +581,7 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
                                     switch_mutex_unlock(member->mutex_audio);
                                 }
                             }
-                        } /* test memebr flags */
+                        } /* test membr flags */
                         member_sem_release(member);
                     }
                 } /* members iterator */
@@ -601,7 +608,7 @@ out:
 
     flush_audio_queue(group->audio_q);
     switch_queue_term(group->audio_q);
-    switch_mutex_destroy(group->mutex);
+
     switch_core_inthash_destroy(&group->members);
     switch_core_destroy_memory_pool(&group->pool);
 
@@ -668,12 +675,6 @@ out:
 
     switch_core_hash_destroy(&conference->members_idx_hash);
 
-    switch_mutex_destroy(conference->mutex);
-    switch_mutex_destroy(conference->mutex_sequence);
-    switch_mutex_destroy(conference->mutex_listeners);
-    switch_mutex_destroy(conference->mutex_speakers);
-    switch_mutex_destroy(conference->mutex_flags);
-
     switch_core_destroy_memory_pool(&conference->pool);
 
     switch_mutex_lock(globals.mutex_conferences);
@@ -687,7 +688,6 @@ out:
     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "conference '%s' destroyed\n", conference_name);
 
     switch_safe_free(conference_name);
-
     return NULL;
 }
 
@@ -1189,7 +1189,7 @@ static void event_handler_shutdown(switch_event_t *event) {
     }
 }
 
-#define CMD_SYNTAX "list - show conferences\n<confname> term - terminate the conferece\n<confname> show [status|groups|memebers]\n<confname> flags [+-][transcoding|vad|cng]\n<confname> memeber <uuid> kick|flags[+-|speaker|admin|mute|deaf|vad|agc]\n"
+#define CMD_SYNTAX "list - show conferences\n<confname> term - terminate the conferece\n<confname> show [status|groups|members]\n<confname> flags [+-][transcoding|vad|cng]\n<confname> member <uuid> kick|flags[+-|speaker|admin|mute|deaf|vad|agc]\n"
 SWITCH_STANDARD_API(xconf_cmd_function) {
    char *mycmd = NULL, *argv[10] = { 0 };
     int argc = 0;
@@ -1267,9 +1267,10 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                 stream->write_function(stream, "user controls............: %s\n", conf->user_controls);
                 stream->write_function(stream, "admin controls...........: %s\n", conf->admin_controls);
                 stream->write_function(stream, "flags....................: ---------\n");
-                stream->write_function(stream, "  - transcoding..........: %i\n", conference_flag_test(conf, CF_USE_TRANSCODING));
-                stream->write_function(stream, "  - vad..................: %i\n", conference_flag_test(conf, CF_USE_VAD));
-                stream->write_function(stream, "  - cng..................: %i\n", conference_flag_test(conf, CF_USE_CNG));
+                stream->write_function(stream, "  - transcoding..........: %s\n", conference_flag_test(conf, CF_USE_TRANSCODING) ? "on" : "off");
+                stream->write_function(stream, "  - vad..................: %s\n", conference_flag_test(conf, CF_USE_VAD) ? "on" : "off");
+                stream->write_function(stream, "  - cng..................: %s\n", conference_flag_test(conf, CF_USE_CNG) ? "on" : "off");
+                stream->write_function(stream, "  - agc..................: %s\n", conference_flag_test(conf, CF_USE_AGC) ? "on" : "off");
                 conference_sem_release(conf);
             }
             goto out;
@@ -1310,7 +1311,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
             member_t *member = NULL;
             uint32_t total = 0;
 
-            stream->write_function(stream, "conference memebers:\n");
+            stream->write_function(stream, "conference members:\n");
 
             if(conference_sem_take(conf)) {
                 switch_mutex_lock(conf->mutex_listeners);
@@ -1327,9 +1328,9 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                             member = (member_t *) hval2;
 
                             if(member_sem_take(member)) {
-                                stream->write_function(stream, "[%s] (group:%03i, codec: %s, samplerate: %iHz, channels: %i, ptime: %ims, volume-in: %i, volume-out: %i, vad-level: %i, flags: [ %s | %s | %s | %s | %s | %s ])\n",
+                                stream->write_function(stream, "[%s] (group:%03i, codec: %s, samplerate: %iHz, channels: %i, ptime: %ims, vol-in: %i, vol-out: %i, vad-lvl: %i, agc-lvl: %i, flags: [ %s | %s | %s | %s | %s | %s ])\n",
                                     member->session_id, group->id, member->codec_name, member->samplerate, member->channels, member->ptime,
-                                    member->volume_in_lvl, member->volume_out_lvl, member->vad_lvl,
+                                    member->volume_in_lvl, member->volume_out_lvl, member->vad_lvl, member->agc_lvl,
                                     (member_flag_test(member, MF_SPEAKER) ? "+speaker" : "-speaker"),
                                     (member_flag_test(member, MF_ADMIN) ? "+admin" : "-admin"),
                                     (member_flag_test(member, MF_MUTED) ? "+muted" : "-muted"),
@@ -1372,7 +1373,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
         goto out;
     }
 
-    /* memeber actions */
+    /* member actions */
     if(strcasecmp(conf_cmd, "member") == 0) {
         member_t *member = NULL;
         char *member_id = (argc >= 3 ? argv[2] : NULL);
@@ -1522,12 +1523,18 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         conference->comfort_noise_lvl = conf_profile->comfort_noise_level;
         conference->user_controls = controls_profile_lookup(conf_profile->user_controls);
         conference->admin_controls = controls_profile_lookup(conf_profile->admin_controls);
+        conference->agc_lvl = 0; // 1000
+        conference->agc_low_lvl = 0;
+        conference->agc_margin = 20;
+        conference->agc_change_factor = 3;
+        conference->agc_period_len = ((1000 / conference->ptime) * 2);
         conference->flags = 0x0;
         conference->fl_ready = false;
 
         conference_flag_set(conference, CF_USE_TRANSCODING, conf_profile->transcoding_enabled);
         conference_flag_set(conference, CF_USE_VAD, conf_profile->vad_enabled);
         conference_flag_set(conference, CF_USE_CNG, conf_profile->cng_enabled);
+        conference_flag_set(conference, CF_USE_AGC, conf_profile->agc_enabled);
 
         launch_thread(pool_tmp, conference_control_thread, conference);
         launch_thread(pool_tmp, conference_audio_capture_thread, conference);
@@ -1565,6 +1572,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     switch_mutex_init(&member->mutex, SWITCH_MUTEX_NESTED, seesion_pool);
     switch_mutex_init(&member->mutex_audio, SWITCH_MUTEX_NESTED, seesion_pool);
     switch_mutex_init(&member->mutex_flags, SWITCH_MUTEX_NESTED, seesion_pool);
+    switch_mutex_init(&member->mutex_agc, SWITCH_MUTEX_NESTED, seesion_pool);
 
     member->codec_name = switch_channel_get_variable(channel, "read_codec");
     member->session_id = switch_core_session_get_uuid(session);
@@ -1574,6 +1582,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     member->read_codec = switch_core_session_get_read_codec(session);
     member->write_codec = switch_core_session_get_write_codec(session);
     member->au_buffer = switch_core_session_alloc(session, AUDIO_BUFFER_SIZE);
+    member->caller_id = switch_channel_get_variable(channel, "caller_id_number");
     member->flags = 0x0;
     member->fl_au_rdy_wr = true;
 
@@ -1596,7 +1605,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Wrong buffer size!");
         goto out;
     }
-    if (switch_core_timer_init(&timer, "soft", member->ptime, member->samplerate, seesion_pool) != SWITCH_STATUS_SUCCESS) {
+    if(switch_core_timer_init(&timer, "soft", member->ptime, member->samplerate, seesion_pool) != SWITCH_STATUS_SUCCESS) {
         switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s: timer fail\n", session_id);
         switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Timer fail!");
         goto out;
@@ -1608,7 +1617,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
 
     /* flags */
     member_flag_set(member, MF_VAD, conference_flag_test(conference, CF_USE_VAD));
-    member_flag_set(member, MF_AGC, conference_flag_test(conference, CF_USE_VAD));
+    member_flag_set(member, MF_AGC, conference_flag_test(conference, CF_USE_AGC));
 
     for(int i = 2; i < argc; i++) {
         uint8_t fl_op = (argv[i][0] == '+' ? true : false);
@@ -1628,6 +1637,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     conference_sem_take(conference);
 
     /* copy conf settings */
+    member->agc_lvl = conference->agc_lvl;
     member->user_controls = conference->user_controls;
     member->admin_controls = conference->admin_controls;
     member->vad_lvl = conference->vad_lvl;
@@ -1641,7 +1651,6 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "member '%s' joined to '%s' [group: %03i]\n", member->session_id, conference->name, group->id);
 
     switch_channel_audio_sync(channel);
-
     while(true) {
         if(!switch_channel_ready(channel) || globals.fl_shutdown || !conference->fl_ready) {
             break;
@@ -1744,6 +1753,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             }
             /* complex op */
             switch_mutex_lock(member->mutex_flags);
+            /* speaker */
             if(member_flag_test(member, MF_SPEAKER) != BIT_CHECK(member_flags_old, MF_SPEAKER)) {
                 if(member_flag_test(member, MF_SPEAKER)) {
                     switch_mutex_lock(conference->mutex_speakers);
@@ -1764,6 +1774,20 @@ SWITCH_STANDARD_APP(xconf_app_api) {
                     switch_mutex_unlock(conference->mutex);
                 }
             }
+            /* agc */
+            if(member_flag_test(member, MF_AGC) != BIT_CHECK(member_flags_old, MF_AGC)) {
+                if(member_flag_test(member, MF_AGC)) {
+                    switch_mutex_lock(member->mutex_agc);
+                    if(!member->agc) {
+                        switch_agc_create(&member->agc, member->agc_lvl, conference->agc_low_lvl, conference->agc_margin, conference->agc_change_factor, conference->agc_period_len);
+                        switch_agc_set_token(member->agc, switch_channel_get_name(channel));
+                    } else {
+                        switch_agc_set(member->agc, member->agc_lvl, conference->agc_low_lvl, conference->agc_margin, conference->agc_change_factor, conference->agc_period_len);
+                    }
+                    switch_mutex_unlock(member->mutex_agc);
+                }
+            }
+            /* update local */
             member_flags_old = member->flags;
             switch_mutex_unlock(member->mutex_flags);
         }
@@ -1808,6 +1832,10 @@ out:
                 group->free++;
             }
             switch_mutex_unlock(group->mutex);
+        }
+
+        if(member->agc) {
+            switch_agc_destroy(&member->agc);
         }
 
         switch_mutex_lock(conference->mutex);
@@ -2007,6 +2035,9 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             conf_profile->transcoding_enabled = true;
             conf_profile->vad_enabled = false;
             conf_profile->cng_enabled = false;
+            conf_profile->agc_enabled = false;
+            conf_profile->ptime = 20;
+            conf_profile->samplerate = 8000;
             conf_profile->conf_idle_max = 0;
             conf_profile->group_idle_max = 0;
             conf_profile->comfort_noise_level = 0;
@@ -2020,6 +2051,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                     conf_profile->transcoding_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "vad-enable")) {
                     conf_profile->vad_enabled = (strcasecmp(val, "true") == 0 ? true : false);
+                } else if(!strcasecmp(var, "agc-enable")) {
+                    conf_profile->agc_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "comfort-noise-enable")) {
                     conf_profile->cng_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "conference-idle-time-max")) {
@@ -2038,16 +2071,18 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                     conf_profile->admin_controls = switch_core_strdup(pool, val);
                 } else if(!strcasecmp(var, "user-controls")) {
                     conf_profile->user_controls = switch_core_strdup(pool, val);
+                } else if(!strcasecmp(var, "agc-data")) {
+                    conf_profile->agc_data = switch_core_strdup(pool, val);
                 }
             }
 
             if(conf_profile->vad_level) {
-                if(conf_profile->vad_level > -2 || conf_profile->vad_level > 1801) {
+                if(conf_profile->vad_level < 0 || conf_profile->vad_level > 1800) {
                     conf_profile->vad_level = 300;
                 }
             }
             if(conf_profile->comfort_noise_level) {
-                if(conf_profile->comfort_noise_level < 1 || conf_profile->comfort_noise_level > 10000) {
+                if(conf_profile->comfort_noise_level < 0 || conf_profile->comfort_noise_level > 10000) {
                     conf_profile->comfort_noise_level = 1400;
                 }
             }
@@ -2187,6 +2222,7 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_xconf_shutdown) {
             switch_core_destroy_memory_pool(&profile->pool);
         }
     }
+
     switch_safe_free(hidx);
     switch_core_hash_destroy(&globals.controls_profiles_hash);
     switch_mutex_unlock(globals.mutex_controls_profiles);

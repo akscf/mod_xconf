@@ -43,6 +43,7 @@
 #define CF_USE_TRANSCODING                      1
 #define CF_USE_VAD                              2
 #define CF_USE_CNG                              3
+#define CF_USE_AGC                              4
 
 #define MF_VAD                                  1
 #define MF_AGC                                  2
@@ -116,10 +117,14 @@ typedef struct {
     int32_t                 vad_lvl;            //
     int32_t                 vad_score;          //
     int32_t                 vad_fade_hits;      //
+    int32_t                 agc_lvl;            //
+    switch_agc_t            *agc;               //
     const char              *session_id;        //
+    const char              *caller_id;         //
     const char              *codec_name;        //
     switch_memory_pool_t    *pool;              // session pool
     switch_mutex_t          *mutex;             //
+    switch_mutex_t          *mutex_agc;         //
     switch_mutex_t          *mutex_audio;       //
     switch_mutex_t          *mutex_flags;       //
     switch_core_session_t   *session;           //
@@ -152,43 +157,49 @@ typedef struct {
 } member_group_t;
 
 typedef struct {
-    uint8_t                 fl_ready;           //
-    uint8_t                 fl_destroyed;       //
-    uint8_t                 fl_do_destroy;      //
-    uint32_t                flags;              //
-    uint32_t                members_count;      //
-    uint32_t                speakers_count;     //
-    uint32_t                tx_sem;             //
-    uint32_t                groups_seq;         //
-    uint32_t                members_seq;        //
-    uint32_t                conf_idle_max;      //
-    uint32_t                group_idle_max;     //
-    int32_t                 comfort_noise_lvl;  //
-    int32_t                 vad_lvl;            //
-    uint32_t                samplerate;         //
-    uint32_t                ptime;              //
-    uint32_t                id;                 //
-    char                    *name;              //
-    switch_memory_pool_t    *pool;              // conf own pool
-    switch_mutex_t          *mutex;             //
-    switch_mutex_t          *mutex_flags;       //
-    switch_mutex_t          *mutex_sequence;    //
-    switch_mutex_t          *mutex_listeners;   //
-    switch_mutex_t          *mutex_speakers;    //
-    switch_inthash_t        *listeners;         // (member_group_t)
-    switch_inthash_t        *speakers;          // (member_t)
-    switch_hash_t           *members_idx_hash;  //
-    switch_queue_t          *commands_q_in;     // (audio_tranfser_buffer_t)
-    switch_queue_t          *audio_q_in;        // (audio_tranfser_buffer_t)
-    switch_queue_t          *audio_q_out;       // (audio_tranfser_buffer_t)
-    controls_profile_t      *admin_controls;    //
-    controls_profile_t      *user_controls;     //
+    uint8_t                 fl_ready;               //
+    uint8_t                 fl_destroyed;           //
+    uint8_t                 fl_do_destroy;          //
+    uint32_t                flags;                  //
+    uint32_t                members_count;          //
+    uint32_t                speakers_count;         //
+    uint32_t                tx_sem;                 //
+    uint32_t                groups_seq;             //
+    uint32_t                members_seq;            //
+    uint32_t                conf_idle_max;          //
+    uint32_t                group_idle_max;         //
+    int32_t                 comfort_noise_lvl;      //
+    int32_t                 vad_lvl;                //
+    int32_t                 agc_lvl;                //
+    uint32_t                agc_low_lvl;            //
+    uint32_t                agc_change_factor;      //
+    uint32_t                agc_period_len;         //
+    uint32_t                agc_margin;             //
+    uint32_t                samplerate;             //
+    uint32_t                ptime;                  //
+    uint32_t                id;                     //
+    char                    *name;                  //
+    switch_memory_pool_t    *pool;                  // conf own pool
+    switch_mutex_t          *mutex;                 //
+    switch_mutex_t          *mutex_flags;           //
+    switch_mutex_t          *mutex_sequence;        //
+    switch_mutex_t          *mutex_listeners;       //
+    switch_mutex_t          *mutex_speakers;        //
+    switch_inthash_t        *listeners;             // (member_group_t)
+    switch_inthash_t        *speakers;              // (member_t)
+    switch_hash_t           *members_idx_hash;      //
+    switch_queue_t          *commands_q_in;         // (audio_tranfser_buffer_t)
+    switch_queue_t          *audio_q_in;            // (audio_tranfser_buffer_t)
+    switch_queue_t          *audio_q_out;           // (audio_tranfser_buffer_t)
+    controls_profile_t      *admin_controls;        //
+    controls_profile_t      *user_controls;         //
 } conference_t;
 
 typedef struct {
     char                    *name;
     char                    *admin_controls;
     char                    *user_controls;
+    char                    *agc_data;
     uint32_t                samplerate;
     uint32_t                ptime;
     uint32_t                conf_idle_max;      // seconds
@@ -197,6 +208,7 @@ typedef struct {
     int32_t                 comfort_noise_level;
     uint8_t                 vad_enabled;
     uint8_t                 cng_enabled;
+    uint8_t                 agc_enabled;
     uint8_t                 transcoding_enabled;
 } conference_profile_t;
 
