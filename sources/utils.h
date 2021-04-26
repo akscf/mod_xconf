@@ -167,6 +167,34 @@ switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, 
     return status;
 }
 
+switch_status_t conference_parse_agc_data(conference_t *conference, const char *agc_data) {
+    switch_status_t status = SWITCH_STATUS_SUCCESS;
+    char *agc_args[4] = { 0 };
+    int iv;
+
+    switch_assert(conference);
+    switch_assert(agc_data);
+
+    switch_split((char * )agc_data, ':', agc_args);
+    if(agc_args[0]) {
+        iv = atoi(agc_args[0]);
+        if(iv > 0) { conference->agc_lvl = iv; }
+    }
+    if(agc_args[1]) {
+        iv = atoi(agc_args[1]);
+        if(iv > 0) { conference->agc_low_lvl = iv; }
+    }
+    if(agc_args[2]) {
+        iv = atoi(agc_args[2]);
+        if(iv > 0) { conference->agc_change_factor = iv; }
+    }
+    if(agc_args[3]) {
+        iv = atoi(agc_args[3]);
+        if(iv > 0) { conference->agc_margin = iv; }
+    }
+    return status;
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 uint32_t group_sem_take(member_group_t *group) {
     uint32_t status = false;

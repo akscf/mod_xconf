@@ -1328,8 +1328,8 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                             member = (member_t *) hval2;
 
                             if(member_sem_take(member)) {
-                                stream->write_function(stream, "[%s] (group:%03i, codec: %s, samplerate: %iHz, channels: %i, ptime: %ims, vol-in: %i, vol-out: %i, vad-lvl: %i, agc-lvl: %i, flags: [ %s | %s | %s | %s | %s | %s ])\n",
-                                    member->session_id, group->id, member->codec_name, member->samplerate, member->channels, member->ptime,
+                                stream->write_function(stream, "[%s / %s] (group:%03i, codec: %s, samplerate: %iHz, channels: %i, ptime: %ims, vol-in: %i, vol-out: %i, vad-lvl: %i, agc-lvl: %i, flags: [ %s | %s | %s | %s | %s | %s ])\n",
+                                    member->session_id, member->caller_id, group->id, member->codec_name, member->samplerate, member->channels, member->ptime,
                                     member->volume_in_lvl, member->volume_out_lvl, member->vad_lvl, member->agc_lvl,
                                     (member_flag_test(member, MF_SPEAKER) ? "+speaker" : "-speaker"),
                                     (member_flag_test(member, MF_ADMIN) ? "+admin" : "-admin"),
@@ -1358,9 +1358,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
 
     /* conference flags */
     if(strcasecmp(conf_cmd, "flags") == 0) {
-        if(argc <= 2) {
-            goto usage;
-        }
+        if(argc <= 2) { goto usage; }
         if(conference_sem_take(conf)) {
             for(int i = 2; i < argc; i++) {
                 uint8_t fl_op= (argv[i][0] == '+' ? true : false);
@@ -1531,6 +1529,10 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         conference->flags = 0x0;
         conference->fl_ready = false;
 
+        if(conf_profile->agc_data) {
+            conference_parse_agc_data(conference, conf_profile->agc_data);
+        }
+
         conference_flag_set(conference, CF_USE_TRANSCODING, conf_profile->transcoding_enabled);
         conference_flag_set(conference, CF_USE_VAD, conf_profile->vad_enabled);
         conference_flag_set(conference, CF_USE_CNG, conf_profile->cng_enabled);
@@ -1637,10 +1639,10 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     conference_sem_take(conference);
 
     /* copy conf settings */
-    member->agc_lvl = conference->agc_lvl;
     member->user_controls = conference->user_controls;
     member->admin_controls = conference->admin_controls;
     member->vad_lvl = conference->vad_lvl;
+    member->agc_lvl = conference->agc_lvl;
 
     /* increase membr counter */
     switch_mutex_lock(conference->mutex);
