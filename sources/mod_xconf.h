@@ -47,12 +47,13 @@
 
 #define MF_VAD                                  1
 #define MF_AGC                                  2
-#define MF_SPEAKER                              3
-#define MF_ADMIN                                4
-#define MF_MUTED                                5
-#define MF_DEAF                                 6
-#define MF_KICK                                 7
-#define MF_SPEAKING                             8
+#define MF_CNG                                  3
+#define MF_SPEAKER                              4
+#define MF_ADMIN                                5
+#define MF_MUTED                                6
+#define MF_DEAF                                 7
+#define MF_KICK                                 8
+#define MF_SPEAKING                             9
 
 typedef struct {
     switch_mutex_t          *mutex;
@@ -118,6 +119,10 @@ typedef struct {
     int32_t                 vad_score;          //
     int32_t                 vad_fade_hits;      //
     int32_t                 agc_lvl;            //
+    uint32_t                agc_low_lvl;        //
+    uint32_t                agc_change_factor;  //
+    uint32_t                agc_period_len;     //
+    uint32_t                agc_margin;         //
     switch_agc_t            *agc;               //
     const char              *session_id;        //
     const char              *caller_id;         //
@@ -168,13 +173,12 @@ typedef struct {
     uint32_t                members_seq;            //
     uint32_t                conf_idle_max;          //
     uint32_t                group_idle_max;         //
-    int32_t                 comfort_noise_lvl;      //
+    int32_t                 cng_lvl;                // comfort_noise_lvl
     int32_t                 vad_lvl;                //
     int32_t                 agc_lvl;                //
     uint32_t                agc_low_lvl;            //
-    uint32_t                agc_change_factor;      //
-    uint32_t                agc_period_len;         //
     uint32_t                agc_margin;             //
+    uint32_t                agc_change_factor;      //
     uint32_t                samplerate;             //
     uint32_t                ptime;                  //
     uint32_t                id;                     //
@@ -205,7 +209,7 @@ typedef struct {
     uint32_t                conf_idle_max;      // seconds
     uint32_t                group_idle_max;     // seconds
     int32_t                 vad_level;
-    int32_t                 comfort_noise_level;
+    int32_t                 cng_level;
     uint8_t                 vad_enabled;
     uint8_t                 cng_enabled;
     uint8_t                 agc_enabled;

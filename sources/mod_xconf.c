@@ -1189,7 +1189,7 @@ static void event_handler_shutdown(switch_event_t *event) {
     }
 }
 
-#define CMD_SYNTAX "list - show conferences\n<confname> term - terminate the conferece\n<confname> show [status|groups|members]\n<confname> flags [+-][transcoding|vad|cng]\n<confname> member <uuid> kick|flags[+-|speaker|admin|mute|deaf|vad|agc]\n"
+#define CMD_SYNTAX "list - show conferences\n<confname> term - terminate the conferece\n<confname> show [status|groups|members]\n<confname> flags [+-][transcoding|vad|cng]\n<confname> member <uuid> kick|agc-data lvl:lowlvl:f:m|flags[+-|speaker|admin|mute|deaf|vad|agc|cng]\n"
 SWITCH_STANDARD_API(xconf_cmd_function) {
    char *mycmd = NULL, *argv[10] = { 0 };
     int argc = 0;
@@ -1263,7 +1263,8 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                 stream->write_function(stream, "conf idle timer..........: %i sec\n", conf->conf_idle_max);
                 stream->write_function(stream, "group idle timer.........: %i sec\n", conf->group_idle_max);
                 stream->write_function(stream, "vad level................: %i\n", conf->vad_lvl);
-                stream->write_function(stream, "cng level................: %i\n", conf->comfort_noise_lvl);
+                stream->write_function(stream, "cng level................: %i\n", conf->cng_lvl);
+                stream->write_function(stream, "agc data.................: %i:%i:%i:%i\n", conf->agc_lvl, conf->agc_low_lvl, conf->agc_change_factor, conf->agc_margin);
                 stream->write_function(stream, "user controls............: %s\n", conf->user_controls);
                 stream->write_function(stream, "admin controls...........: %s\n", conf->admin_controls);
                 stream->write_function(stream, "flags....................: ---------\n");
@@ -1328,15 +1329,16 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                             member = (member_t *) hval2;
 
                             if(member_sem_take(member)) {
-                                stream->write_function(stream, "[%s / %s] (group:%03i, codec: %s, samplerate: %iHz, channels: %i, ptime: %ims, vol-in: %i, vol-out: %i, vad-lvl: %i, agc-lvl: %i, flags: [ %s | %s | %s | %s | %s | %s ])\n",
+                                stream->write_function(stream, "[%s / %s] (group:%03i, codec: %s, samplerate: %iHz, channels: %i, ptime: %ims, vol-in: %i, vol-out: %i, vad-lvl: %i, agc: %i:%i:%i:%i, flags: [ %s | %s | %s | %s | %s | %s | %s ])\n",
                                     member->session_id, member->caller_id, group->id, member->codec_name, member->samplerate, member->channels, member->ptime,
-                                    member->volume_in_lvl, member->volume_out_lvl, member->vad_lvl, member->agc_lvl,
+                                    member->volume_in_lvl, member->volume_out_lvl, member->vad_lvl, member->agc_lvl, member->agc_low_lvl, member->agc_change_factor, member->agc_margin,
                                     (member_flag_test(member, MF_SPEAKER) ? "+speaker" : "-speaker"),
                                     (member_flag_test(member, MF_ADMIN) ? "+admin" : "-admin"),
                                     (member_flag_test(member, MF_MUTED) ? "+muted" : "-muted"),
                                     (member_flag_test(member, MF_DEAF) ? "+deaf" : "-deaf"),
                                     (member_flag_test(member, MF_VAD) ? "+vad" : "-vad"),
-                                    (member_flag_test(member, MF_AGC) ? "+agc" : "-agc")
+                                    (member_flag_test(member, MF_AGC) ? "+agc" : "-agc"),
+                                    (member_flag_test(member, MF_AGC) ? "+cng" : "-cng")
                                 );
                                 member_sem_release(member);
                                 total++;
@@ -1377,6 +1379,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
         char *member_id = (argc >= 3 ? argv[2] : NULL);
         char *member_cmd = (argc >= 4 ? argv[3] : NULL);
         uint8_t show_usage = false;
+        uint8_t resp_ok = false;
 
         if(!member_cmd || !member_id) {
             goto usage;
@@ -1394,13 +1397,26 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
             if(member_sem_take(member)) {
                 if(strcasecmp(member_cmd, "kick") == 0) {
                     member_flag_set(member, MF_KICK, true);
+                    resp_ok = true;
 
+                } else if(strcasecmp(member_cmd, "agc-data") == 0) {
+                    char *agc_data = (argc >= 5 ? argv[4] : NULL);
+                    if(member_parse_agc_data(member, agc_data) == SWITCH_STATUS_SUCCESS) {
+                        switch_mutex_lock(member->mutex_agc);
+                        if(member->agc) {
+                            switch_agc_set(member->agc, member->agc_lvl, member->agc_low_lvl, member->agc_margin, member->agc_change_factor, member->agc_period_len);
+                            resp_ok = true;
+                        }
+                        switch_mutex_unlock(member->mutex_agc);
+                    }
                 } else if(strcasecmp(member_cmd, "flags") == 0) {
                     for(int i = 4; i < argc; i++) {
                         uint8_t fl_op = (argv[i][0] == '+' ? true : false);
                         char *fl_name = (char *)(argv[i] + 1);
 
-                        member_parse_flags(member, fl_name, fl_op);
+                        if(member_parse_flags(member, fl_name, fl_op) == SWITCH_STATUS_SUCCESS) {
+                            resp_ok = true;
+                        }
                     }
                 } else {
                     show_usage = true;
@@ -1409,7 +1425,8 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
             }
             conference_sem_release(conf);
         }
-        if(show_usage) {goto usage; }
+        if(show_usage) { goto usage; }
+        if(resp_ok)    { stream->write_function(stream, "+OK\n"); }
         goto out;
     }
 
@@ -1518,14 +1535,13 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         conference->conf_idle_max = conf_profile->conf_idle_max;
         conference->group_idle_max = conf_profile->group_idle_max;
         conference->vad_lvl = conf_profile->vad_level;
-        conference->comfort_noise_lvl = conf_profile->comfort_noise_level;
+        conference->cng_lvl = conf_profile->cng_level;
         conference->user_controls = controls_profile_lookup(conf_profile->user_controls);
         conference->admin_controls = controls_profile_lookup(conf_profile->admin_controls);
-        conference->agc_lvl = 0; // 1000
+        conference->agc_lvl = 0;
         conference->agc_low_lvl = 0;
         conference->agc_margin = 20;
         conference->agc_change_factor = 3;
-        conference->agc_period_len = ((1000 / conference->ptime) * 2);
         conference->flags = 0x0;
         conference->fl_ready = false;
 
@@ -1535,8 +1551,8 @@ SWITCH_STANDARD_APP(xconf_app_api) {
 
         conference_flag_set(conference, CF_USE_TRANSCODING, conf_profile->transcoding_enabled);
         conference_flag_set(conference, CF_USE_VAD, conf_profile->vad_enabled);
-        conference_flag_set(conference, CF_USE_CNG, conf_profile->cng_enabled);
         conference_flag_set(conference, CF_USE_AGC, conf_profile->agc_enabled);
+        conference_flag_set(conference, CF_USE_CNG, conf_profile->cng_enabled);
 
         launch_thread(pool_tmp, conference_control_thread, conference);
         launch_thread(pool_tmp, conference_audio_capture_thread, conference);
@@ -1620,6 +1636,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     /* flags */
     member_flag_set(member, MF_VAD, conference_flag_test(conference, CF_USE_VAD));
     member_flag_set(member, MF_AGC, conference_flag_test(conference, CF_USE_AGC));
+    member_flag_set(member, MF_CNG, conference_flag_test(conference, CF_USE_CNG));
 
     for(int i = 2; i < argc; i++) {
         uint8_t fl_op = (argv[i][0] == '+' ? true : false);
@@ -1643,6 +1660,14 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     member->admin_controls = conference->admin_controls;
     member->vad_lvl = conference->vad_lvl;
     member->agc_lvl = conference->agc_lvl;
+    member->agc_low_lvl = conference->agc_low_lvl;
+    member->agc_margin = conference->agc_margin;
+    member->agc_change_factor = conference->agc_change_factor;
+    member->agc_period_len = ((1000 / member->ptime) * 2);
+
+    /* agc */
+    switch_agc_create(&member->agc, member->agc_lvl, member->agc_low_lvl, member->agc_margin, member->agc_change_factor, member->agc_period_len);
+    switch_agc_set_token(member->agc, switch_channel_get_name(channel));
 
     /* increase membr counter */
     switch_mutex_lock(conference->mutex);
@@ -1679,7 +1704,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             member->fl_au_rdy_wr = true;
             switch_mutex_unlock(member->mutex_audio);
         } else {
-            if(conference_flag_test(conference, CF_USE_CNG)) {
+            if(conference_flag_test(conference, CF_USE_CNG) && member_flag_test(member, MF_CNG)) {
                 uint32_t bytes = cn_buffer_size;
 
                 if((member_generate_silence(conference, member, cn_buffer, &bytes) == SWITCH_STATUS_SUCCESS) && bytes > 0) {
@@ -1755,6 +1780,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             }
             /* complex op */
             switch_mutex_lock(member->mutex_flags);
+
             /* speaker */
             if(member_flag_test(member, MF_SPEAKER) != BIT_CHECK(member_flags_old, MF_SPEAKER)) {
                 if(member_flag_test(member, MF_SPEAKER)) {
@@ -1776,19 +1802,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
                     switch_mutex_unlock(conference->mutex);
                 }
             }
-            /* agc */
-            if(member_flag_test(member, MF_AGC) != BIT_CHECK(member_flags_old, MF_AGC)) {
-                if(member_flag_test(member, MF_AGC)) {
-                    switch_mutex_lock(member->mutex_agc);
-                    if(!member->agc) {
-                        switch_agc_create(&member->agc, member->agc_lvl, conference->agc_low_lvl, conference->agc_margin, conference->agc_change_factor, conference->agc_period_len);
-                        switch_agc_set_token(member->agc, switch_channel_get_name(channel));
-                    } else {
-                        switch_agc_set(member->agc, member->agc_lvl, conference->agc_low_lvl, conference->agc_margin, conference->agc_change_factor, conference->agc_period_len);
-                    }
-                    switch_mutex_unlock(member->mutex_agc);
-                }
-            }
+
             /* update local */
             member_flags_old = member->flags;
             switch_mutex_unlock(member->mutex_flags);
@@ -2042,7 +2056,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             conf_profile->samplerate = 8000;
             conf_profile->conf_idle_max = 0;
             conf_profile->group_idle_max = 0;
-            conf_profile->comfort_noise_level = 0;
+            conf_profile->cng_level = 0;
             conf_profile->vad_level = 0;
 
             for (param = switch_xml_child(conf_profile_xml, "param"); param; param = param->next) {
@@ -2068,7 +2082,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                 } else if(!strcasecmp(var, "vad-level")) {
                     conf_profile->vad_level = atoi(val);
                 } else if(!strcasecmp(var, "comfort-noise-level")) {
-                    conf_profile->comfort_noise_level = atoi(val);
+                    conf_profile->cng_level = atoi(val);
                 } else if(!strcasecmp(var, "admin-controls")) {
                     conf_profile->admin_controls = switch_core_strdup(pool, val);
                 } else if(!strcasecmp(var, "user-controls")) {
@@ -2083,9 +2097,9 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                     conf_profile->vad_level = 300;
                 }
             }
-            if(conf_profile->comfort_noise_level) {
-                if(conf_profile->comfort_noise_level < 0 || conf_profile->comfort_noise_level > 10000) {
-                    conf_profile->comfort_noise_level = 1400;
+            if(conf_profile->cng_level) {
+                if(conf_profile->cng_level < 0 || conf_profile->cng_level > 10000) {
+                    conf_profile->cng_level = 1400;
                 }
             }
             if(conf_profile->samplerate <= 0) {

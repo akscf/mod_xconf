@@ -282,10 +282,40 @@ switch_status_t member_parse_flags(member_t *member, char *fl_name, uint8_t fl_o
         member_flag_set(member, MF_VAD, fl_op);
     } else if(strcasecmp(fl_name, "agc") == 0) {
         member_flag_set(member, MF_AGC, fl_op);
+    } else if(strcasecmp(fl_name, "cng") == 0) {
+        member_flag_set(member, MF_CNG, fl_op);
     } else {
         status = SWITCH_STATUS_FALSE;
     }
 
+    return status;
+}
+
+switch_status_t member_parse_agc_data(member_t *member, const char *agc_data) {
+    switch_status_t status = SWITCH_STATUS_SUCCESS;
+    char *agc_args[4] = { 0 };
+    int iv;
+
+    switch_assert(member);
+    switch_assert(agc_data);
+
+    switch_split((char * )agc_data, ':', agc_args);
+    if(agc_args[0]) {
+        iv = atoi(agc_args[0]);
+        if(iv > 0) { member->agc_lvl = iv; }
+    }
+    if(agc_args[1]) {
+        iv = atoi(agc_args[1]);
+        if(iv > 0) { member->agc_low_lvl = iv; }
+    }
+    if(agc_args[2]) {
+        iv = atoi(agc_args[2]);
+        if(iv > 0) { member->agc_change_factor = iv; }
+    }
+    if(agc_args[3]) {
+        iv = atoi(agc_args[3]);
+        if(iv > 0) { member->agc_margin = iv; }
+    }
     return status;
 }
 
@@ -298,8 +328,8 @@ switch_status_t member_generate_silence(conference_t *conference, member_t *memb
     uint32_t enc_buffer_len = (uint32_t) *buffer_size;
     uint32_t flags = 0;
 
-    if(conference->comfort_noise_lvl) {
-        switch_generate_sln_silence((int16_t *)tmp, member->samples_ptime, member->channels, (conference->comfort_noise_lvl * (conference->samplerate / 8000)) );
+    if(conference->cng_lvl) {
+        switch_generate_sln_silence((int16_t *)tmp, member->samples_ptime, member->channels, (conference->cng_lvl * (conference->samplerate / 8000)) );
 
         if(switch_core_codec_ready(member->write_codec)) {
             status = switch_core_codec_encode(member->write_codec, NULL, tmp, data_len, member->samplerate, buffer, buffer_size, &enc_smprt, &flags);

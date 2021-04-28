@@ -93,7 +93,7 @@ switch_status_t member_cmd_agc_level_adj(void *conference_ref, void *member_ref,
 
     switch_mutex_lock(member->mutex_agc);
     if(member->agc) {
-        switch_agc_set(member->agc, member->agc_lvl, conference->agc_low_lvl, conference->agc_margin, conference->agc_change_factor, conference->agc_period_len);
+        switch_agc_set(member->agc, member->agc_lvl, member->agc_low_lvl, member->agc_margin, member->agc_change_factor, member->agc_period_len);
     }
     switch_mutex_unlock(member->mutex_agc);
 
