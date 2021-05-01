@@ -146,6 +146,7 @@ switch_status_t member_cmd_vol_listen_adj(void *conference_ref, void *member_ref
     return SWITCH_STATUS_SUCCESS;
 }
 
+/* playback file for conference */
 switch_status_t member_cmd_play(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
@@ -159,6 +160,7 @@ switch_status_t member_cmd_play(void *conference_ref, void *member_ref, void *ac
     return SWITCH_STATUS_SUCCESS;
 }
 
+/* stop playback current file */
 switch_status_t member_cmd_play_stop(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
@@ -168,6 +170,7 @@ switch_status_t member_cmd_play_stop(void *conference_ref, void *member_ref, voi
 
     return SWITCH_STATUS_SUCCESS;
 }
+
 
 switch_status_t member_cmd_call_api(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;

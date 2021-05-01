@@ -22,38 +22,40 @@
 #define DTMF_CMD_LEN_MAX                        10
 #define DTMF_BUFFER_SIZE                        DTMF_CMD_LEN_MAX + 1
 
-#define DM_PAYLOAD_AUDIO                        0xAA
-#define DM_PAYLOAD_COMMAND                      0xAB
-#define DM_PAYLOAD_AUDIO_MAGIC                  0xFADEAFFF
-#define DM_PAYLOAD_COMMAND_MAGIC                0xFADEAEEE
+#define DM_PAYLOAD_AUDIO                        0xA0
+#define DM_PAYLOAD_VIDEO                        0xA1
+#define DM_PAYLOAD_TEXT                         0xA2
+#define DM_PAYLOAD_COMMAND                      0xA3
+#define DM_PAYLOAD_MAGIC                        0xFADEDAF0
 #define DM_MAX_NODES                            32
-#define DM_NODE_LIFETIME                        60 // sec
+#define DM_NODE_LIFETIME                        60  // sec
 #define DM_NODE_CHECK_INTERVAL                  (DM_NODE_LIFETIME * 2)
 #define DM_SHARED_SECRET_MAX_LEN                32
 #define DM_IO_BUFFER_SIZE                       4096
 #define DM_MULTICAST_TTL                        1
 #define DM_MODE_MILTICAST                       1
 #define DM_MODE_P2P                             2
-#define DM_PROTO_VERSION                        1
 #define DM_SALT_SIZE                            16
 #define DM_SALT_LIFE_TIME                       900 // sec
 
-#define DMPF_ENCRYPTED                          1
+#define DMPF_ENCRYPTED                          0x01
 
-#define CF_USE_TRANSCODING                      1
-#define CF_USE_VAD                              2
-#define CF_USE_CNG                              3
-#define CF_USE_AGC                              4
+#define CF_USE_TRANSCODING                      0x01
+#define CF_USE_VAD                              0x02
+#define CF_USE_CNG                              0x03
+#define CF_USE_AGC                              0x04
+#define CF_PLAYBACK_ACTIVE                      0x20
 
-#define MF_VAD                                  1
-#define MF_AGC                                  2
-#define MF_CNG                                  3
-#define MF_SPEAKER                              4
-#define MF_ADMIN                                5
-#define MF_MUTED                                6
-#define MF_DEAF                                 7
-#define MF_KICK                                 8
-#define MF_SPEAKING                             9
+#define MF_VAD                                  0x01
+#define MF_AGC                                  0x02
+#define MF_CNG                                  0x03
+#define MF_SPEAKER                              0x04
+#define MF_ADMIN                                0x05
+#define MF_MUTED                                0x06
+#define MF_DEAF                                 0x07
+#define MF_KICK                                 0x08
+#define MF_SPEAKING                             0X09
+#define MF_PLAYBACK_ACTIVE                      0x20
 
 typedef struct {
     switch_mutex_t          *mutex;
@@ -93,7 +95,7 @@ typedef struct {
     char                    *name;
     switch_memory_pool_t    *pool;
     switch_mutex_t          *mutex;
-    switch_hash_t           *actions_hash;      // (controls_profile_action_t)
+    switch_hash_t           *actions_hash;          // (controls_profile_action_t)
 } controls_profile_t;
 
 typedef struct {
@@ -103,62 +105,69 @@ typedef struct {
 } controls_profile_action_t;
 
 typedef struct {
-    uint8_t                 fl_ready;           //
-    uint8_t                 fl_destroyed;       //
-    uint8_t                 fl_au_rdy_wr;       //
-    uint32_t                id;                 //
-    uint32_t                flags;              //
-    uint32_t                samplerate;         //
-    uint32_t                channels;           //
-    uint32_t                ptime;              //
-    uint32_t                samples_ptime;      //
-    uint32_t                tx_sem;             //
-    int32_t                 volume_in_lvl;      //
-    int32_t                 volume_out_lvl;     //
-    int32_t                 vad_lvl;            //
-    int32_t                 vad_score;          //
-    int32_t                 vad_fade_hits;      //
-    int32_t                 agc_lvl;            //
-    uint32_t                agc_low_lvl;        //
-    uint32_t                agc_change_factor;  //
-    uint32_t                agc_period_len;     //
-    uint32_t                agc_margin;         //
-    switch_agc_t            *agc;               //
-    const char              *session_id;        //
-    const char              *caller_id;         //
-    const char              *codec_name;        //
-    switch_memory_pool_t    *pool;              // session pool
-    switch_mutex_t          *mutex;             //
-    switch_mutex_t          *mutex_agc;         //
-    switch_mutex_t          *mutex_audio;       //
-    switch_mutex_t          *mutex_flags;       //
-    switch_core_session_t   *session;           //
-    switch_codec_t          *read_codec;        //
-    switch_codec_t          *write_codec;       //
-    controls_profile_t      *admin_controls;    //
-    controls_profile_t      *user_controls;     //
+    uint32_t                flags;
+    uint32_t                position;
+    char                    *file_name;
+
+} conference_file_handler_t;
+
+typedef struct {
+    uint8_t                 fl_ready;               //
+    uint8_t                 fl_destroyed;           //
+    uint8_t                 fl_au_rdy_wr;           //
+    uint32_t                id;                     //
+    uint32_t                flags;                  //
+    uint32_t                samplerate;             //
+    uint32_t                channels;               //
+    uint32_t                ptime;                  //
+    uint32_t                samples_ptime;          //
+    uint32_t                tx_sem;                 //
+    int32_t                 volume_in_lvl;          //
+    int32_t                 volume_out_lvl;         //
+    int32_t                 vad_lvl;                //
+    int32_t                 vad_score;              //
+    int32_t                 vad_fade_hits;          //
+    int32_t                 agc_lvl;                //
+    uint32_t                agc_low_lvl;            //
+    uint32_t                agc_change_factor;      //
+    uint32_t                agc_period_len;         //
+    uint32_t                agc_margin;             //
+    switch_agc_t            *agc;                   //
+    const char              *session_id;            //
+    const char              *caller_id;             //
+    const char              *codec_name;            //
+    switch_memory_pool_t    *pool;                  // session pool
+    switch_mutex_t          *mutex;                 //
+    switch_mutex_t          *mutex_agc;             //
+    switch_mutex_t          *mutex_audio;           //
+    switch_mutex_t          *mutex_flags;           //
+    switch_core_session_t   *session;               //
+    switch_codec_t          *read_codec;            //
+    switch_codec_t          *write_codec;           //
+    controls_profile_t      *admin_controls;        //
+    controls_profile_t      *user_controls;         //
     //
-    uint32_t                au_buffer_id;       //
-    uint32_t                au_data_len;        //
-    switch_byte_t           *au_buffer;         //
+    uint32_t                au_buffer_id;           //
+    uint32_t                au_data_len;            //
+    switch_byte_t           *au_buffer;             //
     //
-    void                    *group;             // (member_group_t)
+    void                    *group;                 // (member_group_t)
 } member_t;
 
 typedef struct {
-    uint8_t                 fl_ready;           //
-    uint8_t                 fl_destroyed;       //
-    uint8_t                 fl_do_destroy;      //
-    uint32_t                id;                 //
-    uint32_t                capacity;           //
-    uint32_t                free;               //
-    uint32_t                tx_sem;             //
-    switch_memory_pool_t    *pool;              // group own pool
-    switch_mutex_t          *mutex;             //
-    switch_mutex_t          *mutex_members;     //
-    switch_inthash_t        *members;           // (member_t)
-    switch_queue_t          *audio_q;           // (audio_tranfser_buffer_t)
-    void                    *conference;        // (conference_t)
+    uint8_t                 fl_ready;               //
+    uint8_t                 fl_destroyed;           //
+    uint8_t                 fl_do_destroy;          //
+    uint32_t                id;                     //
+    uint32_t                capacity;               //
+    uint32_t                free;                   //
+    uint32_t                tx_sem;                 //
+    switch_memory_pool_t    *pool;                  // group own pool
+    switch_mutex_t          *mutex;                 //
+    switch_mutex_t          *mutex_members;         //
+    switch_inthash_t        *members;               // (member_t)
+    switch_queue_t          *audio_q;               // (audio_tranfser_buffer_t)
+    void                    *conference;            // (conference_t)
 } member_group_t;
 
 typedef struct {
@@ -206,8 +215,8 @@ typedef struct {
     char                    *agc_data;
     uint32_t                samplerate;
     uint32_t                ptime;
-    uint32_t                conf_idle_max;      // seconds
-    uint32_t                group_idle_max;     // seconds
+    uint32_t                conf_idle_max;          // seconds
+    uint32_t                group_idle_max;         // seconds
     int32_t                 vad_level;
     int32_t                 cng_level;
     uint8_t                 vad_enabled;
@@ -257,3 +266,4 @@ typedef struct {
 } dm_payload_audio_hdr_t;
 
 #endif
+

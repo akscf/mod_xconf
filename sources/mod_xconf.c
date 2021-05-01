@@ -6,6 +6,7 @@
 #include "cipher.h"
 #include "dsp.h"
 #include "utils.h"
+#include "playback.h"
 #include "commands.h"
 
 globals_t globals;
@@ -897,7 +898,7 @@ static void *SWITCH_THREAD_FUNC dm_client_thread(switch_thread_t *thread, void *
                     }
 
                     /* payload */
-                    ahdr_ptr->magic = DM_PAYLOAD_AUDIO_MAGIC;
+                    ahdr_ptr->magic = DM_PAYLOAD_MAGIC;
                     ahdr_ptr->conference_id = atbuf->conference_id;
                     ahdr_ptr->samplerate = atbuf->samplerate;
                     ahdr_ptr->channels = atbuf->channels;
@@ -1096,8 +1097,8 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
                 ahdr_ptr = (void *)(recv_buffer + sizeof(*phdr_ptr));
                 paylod_data_ptr = (void *)(recv_buffer + sizeof(*phdr_ptr) + sizeof(*ahdr_ptr));
 
-                /* check the magic for exclude decryption errors */
-                if(ahdr_ptr->magic == DM_PAYLOAD_AUDIO_MAGIC) {
+                /* validate magic number for exclude decryption errors */
+                if(ahdr_ptr->magic == DM_PAYLOAD_MAGIC) {
                     if(ahdr_ptr->data_len && ahdr_ptr->data_len < AUDIO_BUFFER_SIZE) {
                         conference = conference_lookup_by_id(ahdr_ptr->conference_id);
 
@@ -1117,7 +1118,7 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
                         }
                     }
                 } else {
-                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Malformed payload: invalid magic (audio)!\n");
+                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Malformed payload: invalid magic!\n");
                 }
             }
         }
@@ -1189,7 +1190,17 @@ static void event_handler_shutdown(switch_event_t *event) {
     }
 }
 
-#define CMD_SYNTAX "list - show conferences\n<confname> term - terminate the conferece\n<confname> show [status|groups|members]\n<confname> flags [+-][transcoding|vad|cng]\n<confname> member <uuid> kick|agc-data lvl:lowlvl:f:m|flags[+-|speaker|admin|mute|deaf|vad|agc|cng]\n"
+#define CMD_SYNTAX \
+ "list - show all active conferences\n" \
+ "<confname> term - terminate the conferece\n" \
+ "<confname> show [status|groups|members]\n" \
+ "<confname> playback filename [async]\n" \
+ "<confname> flags [+-][transcoding|vad|cng|agc]\n" \
+ "<confname> member <uuid> kick\n" \
+ "<confname> member <uuid> playback filename [async]\n" \
+ "<confname> member <uuid> agc-data level:lowlevel:factor:margin\n" \
+ "<confname> member <uuid> flags [+-][speaker|admin|mute|deaf|vad|agc|cng]\n"
+
 SWITCH_STANDARD_API(xconf_cmd_function) {
    char *mycmd = NULL, *argv[10] = { 0 };
     int argc = 0;
@@ -1359,16 +1370,36 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
     }
 
     /* conference flags */
-    if(strcasecmp(conf_cmd, "flags") == 0) {
+    if(strcasecmp(conf_cmd, "playback") == 0) {
+        char *filename = (argc >= 3 ? argv[2] : NULL);
+        char *async = (argc >= 4 ? argv[3] : NULL);
+        uint8_t fasync = ((async && strcasecmp(async, "async") == 0) ? true : false);
+
+        if(!filename) {
+            stream->write_function(stream, "-ERR: Missing filename\n");
+            goto out;
+        }
+
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "conference playback: filename=%s, async=%i\n", filename, fasync);
+
+        goto out;
+    } else if(strcasecmp(conf_cmd, "flags") == 0) {
+        uint8_t resp_ok = false;
+
         if(argc <= 2) { goto usage; }
         if(conference_sem_take(conf)) {
             for(int i = 2; i < argc; i++) {
                 uint8_t fl_op= (argv[i][0] == '+' ? true : false);
                 char *fl_name = (char *)(argv[i] + 1);
 
-                conference_parse_flags(conf, fl_name, fl_op);
+                if(conference_parse_flags(conf, fl_name, fl_op) == SWITCH_STATUS_SUCCESS) {
+                    resp_ok = true;
+                }
             }
             conference_sem_release(conf);
+            if(resp_ok) {
+                stream->write_function(stream, "+OK\n");
+            }
         }
         goto out;
     }
@@ -1378,6 +1409,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
         member_t *member = NULL;
         char *member_id = (argc >= 3 ? argv[2] : NULL);
         char *member_cmd = (argc >= 4 ? argv[3] : NULL);
+        char *error_str = NULL;
         uint8_t show_usage = false;
         uint8_t resp_ok = false;
 
@@ -1392,6 +1424,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
 
             if(!member) {
                 stream->write_function(stream, "-ERR: member '%s' not found\n", member_id);
+                conference_sem_release(conf);
                 goto out;
             }
             if(member_sem_take(member)) {
@@ -1408,6 +1441,22 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                             resp_ok = true;
                         }
                         switch_mutex_unlock(member->mutex_agc);
+                    } else {
+                        error_str = "Couldn't parse agc data";
+                    }
+                } else if(strcasecmp(member_cmd, "playback") == 0) {
+                    char *filename = (argc >= 5 ? argv[4] : NULL);
+                    char *async = (argc >= 6 ? argv[5] : NULL);
+                    uint8_t fasync = ((async && strcasecmp(async, "async") == 0) ? true : false);
+
+                    if(filename) {
+                        if(member_payback_file(member, filename, fasync, NULL) == SWITCH_STATUS_SUCCESS) {
+                            resp_ok = true;
+                        } else {
+                            error_str = "Playback fail";
+                        }
+                    } else {
+                        error_str = "Missing filename";
                     }
                 } else if(strcasecmp(member_cmd, "flags") == 0) {
                     for(int i = 4; i < argc; i++) {
@@ -1424,9 +1473,10 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                 member_sem_release(member);
             }
             conference_sem_release(conf);
-        }
+        } /* conf_sem_take */
         if(show_usage) { goto usage; }
         if(resp_ok)    { stream->write_function(stream, "+OK\n"); }
+        if(error_str)  { stream->write_function(stream, "-ERR: %s\n", error_str); }
         goto out;
     }
 
@@ -1449,7 +1499,7 @@ out:
     return SWITCH_STATUS_SUCCESS;
 }
 
-#define APP_SYNTAX "confName profileName [+-flags]"
+#define APP_SYNTAX "confName profileName [+-][transcoding|vad|cng|agc]"
 SWITCH_STANDARD_APP(xconf_app_api) {
     switch_status_t status = SWITCH_STATUS_SUCCESS;
     switch_channel_t *channel = switch_core_session_get_channel(session);
