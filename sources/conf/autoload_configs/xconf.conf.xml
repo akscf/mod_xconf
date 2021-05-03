@@ -39,14 +39,46 @@
             <param name="conference-idle-time-max" value="0"/>
             <param name="group-idle-time-max" value="0"/>
             <param name="transcoding-enable" value="true"/>
+            <param name="allow-video" value="true"/>
+            <param name="allow-chat" value="true"/>
             <param name="vad-enable" value="true"/>
             <param name="vad-level" value="300"/>
-            <param name="comfort-noise-enable" value="true"/>
-            <param name="comfort-noise-level" value="120"/>
+            <param name="cng-enable" value="true"/>
+            <param name="cng-level" value="120"/>
             <param name="agc-enable" value="false"/>
             <param name="agc-data" value="0:0:3:20"/>
             <param name="admin-controls" value="default"/>
             <param name="user-controls" value="default"/>
+
+            <param name="authentication-enable" value="true"/>
+            <param name="pin-code" value="12345678"/>
+
+            <param name="media-record-enable" value="true"/>
+            <param name="media-record-path" value="/tmp/test1.wav"/>
+            <param name="chat-record-enable" value="true"/>
+            <param name="chat-record-path" value="/tmp/test1.txt"/>
+
+            <!--
+             <param name="sound-prefix" value="$${sound_prefix}"/>
+            -->
+            <param name="sound-moh" value="$${hold_music}"/>
+            <param name="sound-enter-pin-code" value="conference/conf-pin.wav"/>
+            <param name="sound-bad-pin-code" value="conference/conf-bad-pin.wav"/>
+            <param name="sound-member-join" value="tone_stream://%(200,0,500,600,700)"/>
+            <param name="sound-member-leave" value="tone_stream://%(500,0,300,200,100,50,25)"/>
+            <param name="sound-member-welcome" value="conference/conf-welcome.wav"/>
+            <param name="sound-member-alone" value="conference/conf-alone.wav"/>
+            <param name="sound-member-kicked" value="conference/conf-kicked.wav"/>
+            <param name="sound-member-muted" value="conference/conf-muted.wav"/>
+            <param name="sound-member-unmuted" value="conference/conf-unmuted.wav"/>
+            <param name="sound-member-admin" value="conference/conf-admin.wav"/>
+            <param name="sound-member-unadmin" value="conference/conf-unadmin.wav"/>
+
+            <!--
+             <param name="tts-engine" value=""/>
+             <param name="tts-voice" value=""/>
+            -->
+
         </profile>
     </conference-profiles>
 

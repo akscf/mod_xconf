@@ -154,12 +154,22 @@ switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, 
 
     if(strcasecmp(fl_name, "transcoding") == 0) {
         conference_flag_set(conference, CF_USE_TRANSCODING, fl_op);
+    } else if(strcasecmp(fl_name, "video") == 0) {
+        conference_flag_set(conference, CF_ALLOW_VIDEO, fl_op);
+    } else if(strcasecmp(fl_name, "chat") == 0) {
+        conference_flag_set(conference, CF_ALLOW_CHAT, fl_op);
     } else if(strcasecmp(fl_name, "vad") == 0) {
         conference_flag_set(conference, CF_USE_VAD, fl_op);
     } else if(strcasecmp(fl_name, "cng") == 0) {
         conference_flag_set(conference, CF_USE_CNG, fl_op);
     } else if(strcasecmp(fl_name, "agc") == 0) {
         conference_flag_set(conference, CF_USE_AGC, fl_op);
+    } else if(strcasecmp(fl_name, "auth") == 0) {
+        conference_flag_set(conference, CF_USE_AUTH, (fl_op && !zstr(conference->pin_code)));
+    } else if(strcasecmp(fl_name, "rec-media") == 0) {
+        conference_flag_set(conference, CF_MEDIA_RECORD, fl_op);
+    } else if(strcasecmp(fl_name, "rec-chat") == 0) {
+        conference_flag_set(conference, CF_CHAT_RECORD, fl_op);
     } else {
         status = SWITCH_STATUS_FALSE;
     }
@@ -250,7 +260,6 @@ void member_sem_release(member_t *member) {
 inline int member_flag_test(member_t *member, int flag) {
     switch_assert(member);
     return BIT_CHECK(member->flags, flag);
-
 }
 
 inline void member_flag_set(member_t *member, int flag, int value) {
@@ -319,10 +328,9 @@ switch_status_t member_parse_agc_data(member_t *member, const char *agc_data) {
     return status;
 }
 
-/* forbidden to use it out of the member thread context (not thread-safe) */
-switch_status_t member_generate_silence(conference_t *conference, member_t *member, switch_byte_t *buffer, uint32_t *buffer_size) {
+switch_status_t member_generate_comfort_noises(conference_t *conference, member_t *member, switch_byte_t *buffer, uint32_t *buffer_size) {
     switch_byte_t tmp[AUDIO_BUFFER_SIZE] = { 0 };
-    switch_status_t status = SWITCH_STATUS_SUCCESS;
+    switch_status_t status = SWITCH_STATUS_FALSE;
     uint32_t data_len = member->samples_ptime * 2;
     uint32_t enc_smprt = member->samplerate;
     uint32_t enc_buffer_len = (uint32_t) *buffer_size;
@@ -330,7 +338,6 @@ switch_status_t member_generate_silence(conference_t *conference, member_t *memb
 
     if(conference->cng_lvl) {
         switch_generate_sln_silence((int16_t *)tmp, member->samples_ptime, member->channels, (conference->cng_lvl * (conference->samplerate / 8000)) );
-
         if(switch_core_codec_ready(member->write_codec)) {
             status = switch_core_codec_encode(member->write_codec, NULL, tmp, data_len, member->samplerate, buffer, buffer_size, &enc_smprt, &flags);
         }
@@ -379,6 +386,7 @@ switch_status_t audio_tranfser_buffer_clone(audio_tranfser_buffer_t **dst, audio
     switch_zmalloc(buf, sizeof(audio_tranfser_buffer_t));
 
     buf->id = src->id;
+    buf->flags = src->flags;
     buf->conference_id = src->conference_id;
     buf->samplerate = src->samplerate;
     buf->channels = src->channels;
@@ -397,6 +405,20 @@ void audio_tranfser_buffer_free(audio_tranfser_buffer_t *buf) {
     if(buf) {
         switch_safe_free(buf->data);
         switch_safe_free(buf);
+    }
+}
+
+inline int audio_tranfser_buffer_flag_test(audio_tranfser_buffer_t *atb, int flag) {
+    switch_assert(atb);
+    return BIT_CHECK(atb->flags, flag);
+}
+
+inline void audio_tranfser_buffer_flag_set(audio_tranfser_buffer_t *atb, int flag, int value) {
+    switch_assert(atb);
+    if(value) {
+        BIT_SET(atb->flags, flag);
+    } else {
+        BIT_CLEAR(atb->flags, flag);
     }
 }
 

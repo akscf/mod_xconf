@@ -171,6 +171,7 @@ void cipher_init(cipher_ctx_t *ctx, const char* key, size_t key_len) {
     for(i=0; i <= 3; i++) {
         memcpy((uint8_t *)ctx->s[i], (uint8_t *)bf_s_box[i], 1024);
     }
+
     ctx->x=0; ctx->y=0;
     cipher_update(ctx);
 }

@@ -21,6 +21,8 @@
 #define NET_ANYADDR                             "0.0.0.0"
 #define DTMF_CMD_LEN_MAX                        10
 #define DTMF_BUFFER_SIZE                        DTMF_CMD_LEN_MAX + 1
+#define MEMBER_AUTH_TIME                        45 // sec
+#define MEMBER_AUTH_ATTEMPTS                    3
 
 #define DM_PAYLOAD_AUDIO                        0xA0
 #define DM_PAYLOAD_VIDEO                        0xA1
@@ -44,7 +46,12 @@
 #define CF_USE_VAD                              0x02
 #define CF_USE_CNG                              0x03
 #define CF_USE_AGC                              0x04
-#define CF_PLAYBACK_ACTIVE                      0x20
+#define CF_USE_AUTH                             0x05
+#define CF_ALLOW_VIDEO                          0x06
+#define CF_ALLOW_CHAT                           0x07
+#define CF_MEDIA_RECORD                         0x08
+#define CF_CHAT_RECORD                          0x09
+#define CF_PLAYBACK                             0x20
 
 #define MF_VAD                                  0x01
 #define MF_AGC                                  0x02
@@ -55,7 +62,8 @@
 #define MF_DEAF                                 0x07
 #define MF_KICK                                 0x08
 #define MF_SPEAKING                             0X09
-#define MF_PLAYBACK_ACTIVE                      0x20
+#define MF_AUTHORIZED                           0X0A
+#define MF_PLAYBACK                             0x20
 
 typedef struct {
     switch_mutex_t          *mutex;
@@ -134,7 +142,7 @@ typedef struct {
     uint32_t                agc_margin;             //
     switch_agc_t            *agc;                   //
     const char              *session_id;            //
-    const char              *caller_id;             //
+    const char              *caller_id;             // member number
     const char              *codec_name;            //
     switch_memory_pool_t    *pool;                  // session pool
     switch_mutex_t          *mutex;                 //
@@ -147,6 +155,7 @@ typedef struct {
     controls_profile_t      *admin_controls;        //
     controls_profile_t      *user_controls;         //
     //
+    uint32_t                au_buffer_flags;        //
     uint32_t                au_buffer_id;           //
     uint32_t                au_data_len;            //
     switch_byte_t           *au_buffer;             //
@@ -192,6 +201,26 @@ typedef struct {
     uint32_t                ptime;                  //
     uint32_t                id;                     //
     char                    *name;                  //
+    char                    *pin_code;              // access code
+    //
+    char                    *media_record_path;
+    char                    *chat_record_path;
+    char                    *sound_prefix_path;
+    char                    *sound_moh;
+    char                    *sound_enter_pin_code;
+    char                    *sound_bad_pin_code;
+    char                    *sound_member_join;
+    char                    *sound_member_leave;
+    char                    *sound_member_welcome;
+    char                    *sound_member_alone;
+    char                    *sound_member_kicked;
+    char                    *sound_member_muted;
+    char                    *sound_member_unmuted;
+    char                    *sound_member_admin;
+    char                    *sound_member_unadmin;
+    char                    *tts_engine;
+    char                    *tts_voice;
+    //
     switch_memory_pool_t    *pool;                  // conf own pool
     switch_mutex_t          *mutex;                 //
     switch_mutex_t          *mutex_flags;           //
@@ -213,6 +242,26 @@ typedef struct {
     char                    *admin_controls;
     char                    *user_controls;
     char                    *agc_data;
+    char                    *pin_code;
+    //
+    char                    *media_record_path;
+    char                    *chat_record_path;
+    char                    *sound_prefix_path;
+    char                    *sound_moh;
+    char                    *sound_enter_pin_code;
+    char                    *sound_bad_pin_code;
+    char                    *sound_member_join;
+    char                    *sound_member_leave;
+    char                    *sound_member_welcome;
+    char                    *sound_member_alone;
+    char                    *sound_member_kicked;
+    char                    *sound_member_muted;
+    char                    *sound_member_unmuted;
+    char                    *sound_member_admin;
+    char                    *sound_member_unadmin;
+    char                    *tts_engine;
+    char                    *tts_voice;
+    //
     uint32_t                samplerate;
     uint32_t                ptime;
     uint32_t                conf_idle_max;          // seconds
@@ -222,11 +271,17 @@ typedef struct {
     uint8_t                 vad_enabled;
     uint8_t                 cng_enabled;
     uint8_t                 agc_enabled;
+    uint8_t                 media_record_enabled;
+    uint8_t                 chat_record_enabled;
+    uint8_t                 authentication_enabled;
     uint8_t                 transcoding_enabled;
+    uint8_t                 allow_video;
+    uint8_t                 allow_chat;
 } conference_profile_t;
 
 typedef struct {
     uint32_t                id;
+    uint32_t                flags;
     uint32_t                conference_id;
     uint32_t                samplerate;
     uint32_t                channels;
