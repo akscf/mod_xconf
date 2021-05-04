@@ -40,7 +40,6 @@
             <param name="group-idle-time-max" value="0"/>
             <param name="transcoding-enable" value="true"/>
             <param name="allow-video" value="true"/>
-            <param name="allow-chat" value="true"/>
             <param name="vad-enable" value="true"/>
             <param name="vad-level" value="300"/>
             <param name="cng-enable" value="true"/>
@@ -52,11 +51,6 @@
 
             <param name="authentication-enable" value="true"/>
             <param name="pin-code" value="12345678"/>
-
-            <param name="media-record-enable" value="true"/>
-            <param name="media-record-path" value="/tmp/test1.wav"/>
-            <param name="chat-record-enable" value="true"/>
-            <param name="chat-record-path" value="/tmp/test1.txt"/>
 
             <!--
              <param name="sound-prefix" value="$${sound_prefix}"/>
@@ -73,7 +67,8 @@
             <param name="sound-member-unmuted" value="conference/conf-unmuted.wav"/>
             <param name="sound-member-admin" value="conference/conf-admin.wav"/>
             <param name="sound-member-unadmin" value="conference/conf-unadmin.wav"/>
-
+            <param name="sound-member-speaker" value="conference/conf-speaker.wav"/>
+            <param name="sound-member-unspeaker" value="conference/conf-unspeaker.wav"/>
             <!--
              <param name="tts-engine" value=""/>
              <param name="tts-voice" value=""/>

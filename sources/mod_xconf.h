@@ -26,7 +26,7 @@
 
 #define DM_PAYLOAD_AUDIO                        0xA0
 #define DM_PAYLOAD_VIDEO                        0xA1
-#define DM_PAYLOAD_TEXT                         0xA2
+#define DM_PAYLOAD_EVENT                        0xA2
 #define DM_PAYLOAD_COMMAND                      0xA3
 #define DM_PAYLOAD_MAGIC                        0xFADEDAF0
 #define DM_MAX_NODES                            32
@@ -40,30 +40,27 @@
 #define DM_SALT_SIZE                            16
 #define DM_SALT_LIFE_TIME                       900 // sec
 
-#define DMPF_ENCRYPTED                          0x01
+#define DMPF_ENCRYPTED                          0x00
 
-#define CF_USE_TRANSCODING                      0x01
-#define CF_USE_VAD                              0x02
-#define CF_USE_CNG                              0x03
-#define CF_USE_AGC                              0x04
-#define CF_USE_AUTH                             0x05
-#define CF_ALLOW_VIDEO                          0x06
-#define CF_ALLOW_CHAT                           0x07
-#define CF_MEDIA_RECORD                         0x08
-#define CF_CHAT_RECORD                          0x09
-#define CF_PLAYBACK                             0x20
+#define CF_USE_TRANSCODING                      0x00
+#define CF_USE_VAD                              0x01
+#define CF_USE_CNG                              0x02
+#define CF_USE_AGC                              0x03
+#define CF_USE_AUTH                             0x04
+#define CF_ALLOW_VIDEO                          0x05
+#define CF_PLAYBACK                             0x1F
 
-#define MF_VAD                                  0x01
-#define MF_AGC                                  0x02
-#define MF_CNG                                  0x03
-#define MF_SPEAKER                              0x04
-#define MF_ADMIN                                0x05
-#define MF_MUTED                                0x06
-#define MF_DEAF                                 0x07
-#define MF_KICK                                 0x08
-#define MF_SPEAKING                             0X09
-#define MF_AUTHORIZED                           0X0A
-#define MF_PLAYBACK                             0x20
+#define MF_VAD                                  0x00
+#define MF_AGC                                  0x01
+#define MF_CNG                                  0x02
+#define MF_SPEAKER                              0x03
+#define MF_ADMIN                                0x04
+#define MF_MUTED                                0x05
+#define MF_DEAF                                 0x06
+#define MF_KICK                                 0x07
+#define MF_SPEAKING                             0X08
+#define MF_AUTHORIZED                           0X09
+#define MF_PLAYBACK                             0x1F
 
 typedef struct {
     switch_mutex_t          *mutex;
@@ -149,13 +146,14 @@ typedef struct {
     switch_mutex_t          *mutex_agc;             //
     switch_mutex_t          *mutex_audio;           //
     switch_mutex_t          *mutex_flags;           //
+    switch_mutex_t          *mutex_playback;        //
     switch_core_session_t   *session;               //
     switch_codec_t          *read_codec;            //
     switch_codec_t          *write_codec;           //
     controls_profile_t      *admin_controls;        //
     controls_profile_t      *user_controls;         //
+    switch_file_handle_t    *playpack_handle;       //
     //
-    uint32_t                au_buffer_flags;        //
     uint32_t                au_buffer_id;           //
     uint32_t                au_data_len;            //
     switch_byte_t           *au_buffer;             //
@@ -203,8 +201,6 @@ typedef struct {
     char                    *name;                  //
     char                    *pin_code;              // access code
     //
-    char                    *media_record_path;
-    char                    *chat_record_path;
     char                    *sound_prefix_path;
     char                    *sound_moh;
     char                    *sound_enter_pin_code;
@@ -218,6 +214,8 @@ typedef struct {
     char                    *sound_member_unmuted;
     char                    *sound_member_admin;
     char                    *sound_member_unadmin;
+    char                    *sound_member_speaker;
+    char                    *sound_member_unspeaker;
     char                    *tts_engine;
     char                    *tts_voice;
     //
@@ -244,8 +242,6 @@ typedef struct {
     char                    *agc_data;
     char                    *pin_code;
     //
-    char                    *media_record_path;
-    char                    *chat_record_path;
     char                    *sound_prefix_path;
     char                    *sound_moh;
     char                    *sound_enter_pin_code;
@@ -259,6 +255,8 @@ typedef struct {
     char                    *sound_member_unmuted;
     char                    *sound_member_admin;
     char                    *sound_member_unadmin;
+    char                    *sound_member_speaker;
+    char                    *sound_member_unspeaker;
     char                    *tts_engine;
     char                    *tts_voice;
     //
@@ -271,12 +269,9 @@ typedef struct {
     uint8_t                 vad_enabled;
     uint8_t                 cng_enabled;
     uint8_t                 agc_enabled;
-    uint8_t                 media_record_enabled;
-    uint8_t                 chat_record_enabled;
     uint8_t                 authentication_enabled;
     uint8_t                 transcoding_enabled;
     uint8_t                 allow_video;
-    uint8_t                 allow_chat;
 } conference_profile_t;
 
 typedef struct {

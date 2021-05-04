@@ -17,6 +17,13 @@ uint32_t make_id(char *name, uint32_t len) {
     return switch_crc32_8bytes((char *)name, len);
 }
 
+inline void mix_i16(int16_t *dst, int16_t *src, uint32_t len) {
+    uint32_t i = 0;
+    for(i = 0; i < len; i++) {
+        dst[i] += src[i];
+    }
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 controls_profile_t *controls_profile_lookup(char *name) {
     controls_profile_t *profile = NULL;
@@ -152,12 +159,10 @@ switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, 
 
     switch_assert(conference);
 
-    if(strcasecmp(fl_name, "transcoding") == 0) {
+    if(strcasecmp(fl_name, "trans") == 0) {
         conference_flag_set(conference, CF_USE_TRANSCODING, fl_op);
     } else if(strcasecmp(fl_name, "video") == 0) {
         conference_flag_set(conference, CF_ALLOW_VIDEO, fl_op);
-    } else if(strcasecmp(fl_name, "chat") == 0) {
-        conference_flag_set(conference, CF_ALLOW_CHAT, fl_op);
     } else if(strcasecmp(fl_name, "vad") == 0) {
         conference_flag_set(conference, CF_USE_VAD, fl_op);
     } else if(strcasecmp(fl_name, "cng") == 0) {
@@ -166,10 +171,6 @@ switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, 
         conference_flag_set(conference, CF_USE_AGC, fl_op);
     } else if(strcasecmp(fl_name, "auth") == 0) {
         conference_flag_set(conference, CF_USE_AUTH, (fl_op && !zstr(conference->pin_code)));
-    } else if(strcasecmp(fl_name, "rec-media") == 0) {
-        conference_flag_set(conference, CF_MEDIA_RECORD, fl_op);
-    } else if(strcasecmp(fl_name, "rec-chat") == 0) {
-        conference_flag_set(conference, CF_CHAT_RECORD, fl_op);
     } else {
         status = SWITCH_STATUS_FALSE;
     }
@@ -205,7 +206,31 @@ switch_status_t conference_parse_agc_data(conference_t *conference, const char *
     return status;
 }
 
-// ---------------------------------------------------------------------------------------------------------------------------------------------------
+void conference_dump_status(conference_t *conference, switch_stream_handle_t *stream) {
+    stream->write_function(stream, "ID.......................: 0x%X\n", conference->id);
+    stream->write_function(stream, "Media....................: %iHz/%i ms\n", conference->samplerate, conference->ptime);
+    stream->write_function(stream, "Members active...........: %i\n", conference->members_count);
+    stream->write_function(stream, "Speakers active..........: %i\n", conference->speakers_count);
+    stream->write_function(stream, "Sounds path..............: %s\n", conference->sound_prefix_path);
+    stream->write_function(stream, "Conf idle timer..........: %i sec\n", conference->conf_idle_max);
+    stream->write_function(stream, "Group idle timer.........: %i sec\n", conference->group_idle_max);
+    stream->write_function(stream, "VAD level................: %i\n", conference->vad_lvl);
+    stream->write_function(stream, "CNG level................: %i\n", conference->cng_lvl);
+    stream->write_function(stream, "AGC settings.............: %i:%i:%i:%i\n", conference->agc_lvl, conference->agc_low_lvl, conference->agc_change_factor, conference->agc_margin);
+    stream->write_function(stream, "Pin code.................: %s\n", conference->pin_code);
+    stream->write_function(stream, "User controls............: %s\n", conference->user_controls ? conference->user_controls->name : "n/a");
+    stream->write_function(stream, "Admin controls...........: %s\n", conference->admin_controls ? conference->admin_controls->name : "n/a");
+    stream->write_function(stream, "Playback status..........: %s\n", conference_flag_test(conference, CF_PLAYBACK) ? "active" : "stopped");
+    stream->write_function(stream, "Access mode..............: %s\n", conference_flag_test(conference, CF_USE_AUTH) ? "free" : "by pin");
+    stream->write_function(stream, "flags....................: ---------\n");
+    stream->write_function(stream, "  - transcoding..........: %s\n", conference_flag_test(conference, CF_USE_TRANSCODING) ? "on" : "off");
+    stream->write_function(stream, "  - allow video..........: %s\n", conference_flag_test(conference, CF_ALLOW_VIDEO) ? "on" : "off");
+    stream->write_function(stream, "  - vad..................: %s\n", conference_flag_test(conference, CF_USE_VAD) ? "on" : "off");
+    stream->write_function(stream, "  - cng..................: %s\n", conference_flag_test(conference, CF_USE_CNG) ? "on" : "off");
+    stream->write_function(stream, "  - agc..................: %s\n", conference_flag_test(conference, CF_USE_AGC) ? "on" : "off");
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 uint32_t group_sem_take(member_group_t *group) {
     uint32_t status = false;
 
@@ -346,6 +371,37 @@ switch_status_t member_generate_comfort_noises(conference_t *conference, member_
     return status;
 }
 
+void member_dump_status(member_t *member, switch_stream_handle_t *stream) {
+    stream->write_function(stream, "Group................: %03i\n", ((member_group_t *)member->group)->id);
+    stream->write_function(stream, "Session id...........: %s\n", member->session_id);
+    stream->write_function(stream, "Caller id............: %s\n", member->caller_id);
+    stream->write_function(stream, "Media................: %iHz/%i/%ims/%s\n", member->samplerate, member->channels, member->ptime, member->codec_name);
+    stream->write_function(stream, "Roles................: %s/%s\n", (member_flag_test(member, MF_ADMIN) ? "admin" : "user"), (member_flag_test(member, MF_SPEAKER) ? "speaker" : "listener"));
+    stream->write_function(stream, "Gain in/out..........: %i/%i\n", member->volume_in_lvl, member->volume_out_lvl);
+    stream->write_function(stream, "VAD level............: %i\n", member->vad_lvl);
+    stream->write_function(stream, "AGC settings.........: %i:%i:%i:%i\n", member->agc_lvl, member->agc_low_lvl, member->agc_change_factor, member->agc_margin);
+    stream->write_function(stream, "Auth status..........: %s\n", member_flag_test(member, MF_AUTHORIZED) ? "authorized" : "unauthorized");
+    stream->write_function(stream, "Playback status......: %s\n", member_flag_test(member, MF_PLAYBACK) ? "active" : "stopped");
+    stream->write_function(stream, "Flags................: ---------\n");
+    stream->write_function(stream, "  - speaking.........: %s\n", member_flag_test(member, MF_SPEAKING) ? "yes" : "no");
+    stream->write_function(stream, "  - muted............: %s\n", member_flag_test(member, MF_MUTED) ? "on" : "off");
+    stream->write_function(stream, "  - deaf.............: %s\n", member_flag_test(member, MF_DEAF) ? "on" : "off");
+    stream->write_function(stream, "  - vad..............: %s\n", member_flag_test(member, MF_VAD) ? "on" : "off");
+    stream->write_function(stream, "  - agc..............: %s\n", member_flag_test(member, MF_AGC) ? "on" : "off");
+    stream->write_function(stream, "  - cng..............: %s\n", member_flag_test(member, MF_CNG) ? "on" : "off");
+}
+
+/* conditions helper */
+inline int member_can_hear(member_t *member) {
+    return (member->fl_ready && !member_flag_test(member, MF_DEAF) && !member_flag_test(member, MF_PLAYBACK) && member_flag_test(member, MF_AUTHORIZED));
+}
+inline int member_can_hear_cn(conference_t *conference, member_t *member) {
+    return (conference_flag_test(conference, CF_USE_CNG) && member_flag_test(member, MF_CNG) && !member_flag_test(member, MF_PLAYBACK));
+}
+inline int member_can_speak(member_t *member) {
+    return (member->fl_ready && !member_flag_test(member, MF_MUTED) && member_flag_test(member, MF_AUTHORIZED));
+}
+
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 inline int dm_packet_flag_test(dm_packet_hdr_t *packet, int flag) {
     switch_assert(packet);
@@ -405,20 +461,6 @@ void audio_tranfser_buffer_free(audio_tranfser_buffer_t *buf) {
     if(buf) {
         switch_safe_free(buf->data);
         switch_safe_free(buf);
-    }
-}
-
-inline int audio_tranfser_buffer_flag_test(audio_tranfser_buffer_t *atb, int flag) {
-    switch_assert(atb);
-    return BIT_CHECK(atb->flags, flag);
-}
-
-inline void audio_tranfser_buffer_flag_set(audio_tranfser_buffer_t *atb, int flag, int value) {
-    switch_assert(atb);
-    if(value) {
-        BIT_SET(atb->flags, flag);
-    } else {
-        BIT_CLEAR(atb->flags, flag);
     }
 }
 
