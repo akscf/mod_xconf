@@ -1666,8 +1666,8 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     member->read_codec = switch_core_session_get_read_codec(session);
     member->write_codec = switch_core_session_get_write_codec(session);
     member->au_buffer = switch_core_session_alloc(session, AUDIO_BUFFER_SIZE);
+    member->playpack_handle = switch_core_session_alloc(session, sizeof(switch_file_handle_t));
     member->caller_id = switch_channel_get_variable(channel, "caller_id_number");
-    member->playpack_handle = NULL;
     member->flags = 0x0;
     member->fl_au_rdy_wr = true;
 
@@ -1681,6 +1681,11 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         goto out;
     }
     if(member->au_buffer == NULL || write_frame.data == NULL) {
+        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s: not enough memory\n", session_id);
+        switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Not enough memory!");
+        goto out;
+    }
+    if(member->playpack_handle == NULL) {
         switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s: not enough memory\n", session_id);
         switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Not enough memory!");
         goto out;

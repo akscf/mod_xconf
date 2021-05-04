@@ -66,7 +66,6 @@ switch_status_t member_payback(member_t *member, char *path, uint8_t async, void
     switch_channel_t *channel = NULL;
     switch_input_args_t *ap = NULL;
     switch_input_args_t args = { 0 };
-    switch_file_handle_t lfh = { 0 };
     conference_t *conference = NULL;
     char *expanded = NULL, *dpath = NULL;
 
@@ -110,8 +109,7 @@ switch_status_t member_payback(member_t *member, char *path, uint8_t async, void
         /* set flags */
         switch_mutex_lock(member->mutex_playback);
         member_flag_set(member, MF_PLAYBACK, true);
-        member->playpack_handle = &lfh;
-        memset(member->playpack_handle, 0, sizeof(lfh));
+        memset(member->playpack_handle, 0, sizeof(switch_file_handle_t));
         switch_mutex_unlock(member->mutex_playback);
 
         /* playback */
