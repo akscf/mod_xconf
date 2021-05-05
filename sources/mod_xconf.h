@@ -17,10 +17,11 @@
 
 #define AUDIO_BUFFER_SIZE                       2048 // SWITCH_RECOMMENDED_BUFFER_SIZE
 #define XCONF_VERSION                           "1.7"
-#define XCONF_CONFIG_VERSION                    1
 #define NET_ANYADDR                             "0.0.0.0"
-#define DTMF_CMD_LEN_MAX                        10
-#define DTMF_BUFFER_SIZE                        DTMF_CMD_LEN_MAX + 1
+#define DTMF_CMD_MAX_LEN                        10
+#define DTMF_CMD_BUFFER_SIZE                    DTMF_CMD_MAX_LEN + 1
+#define PIN_CODE_MAX_LEN                        10
+#define PIN_CODE_BUFFER_SIZE                    PIN_CODE_MAX_LEN + 1
 #define MEMBER_AUTH_TIME                        45 // sec
 #define MEMBER_AUTH_ATTEMPTS                    3
 
@@ -182,8 +183,10 @@ typedef struct {
     uint8_t                 fl_destroyed;           //
     uint8_t                 fl_do_destroy;          //
     uint32_t                flags;                  //
-    uint32_t                members_count;          //
-    uint32_t                speakers_count;         //
+    uint32_t                members_total;          //
+    uint32_t                speakers_total;         //
+    uint32_t                members_local;          // this node
+    uint32_t                speakers_local;         // this node
     uint32_t                tx_sem;                 //
     uint32_t                groups_seq;             //
     uint32_t                members_seq;            //
@@ -199,7 +202,8 @@ typedef struct {
     uint32_t                ptime;                  //
     uint32_t                id;                     //
     char                    *name;                  //
-    char                    *pin_code;              // access code
+    char                    *admin_pin_code;        //
+    char                    *user_pin_code;         //
     //
     char                    *sound_prefix_path;
     char                    *sound_moh;
@@ -208,6 +212,7 @@ typedef struct {
     char                    *sound_member_join;
     char                    *sound_member_leave;
     char                    *sound_member_welcome;
+    char                    *sound_member_bye;
     char                    *sound_member_alone;
     char                    *sound_member_kicked;
     char                    *sound_member_muted;
@@ -233,6 +238,8 @@ typedef struct {
     switch_queue_t          *audio_q_out;           // (audio_tranfser_buffer_t)
     controls_profile_t      *admin_controls;        //
     controls_profile_t      *user_controls;         //
+//    switch_mutex_t          *mutex_nodes_map;
+//    switch_inthash_t        *nodes_map;
 } conference_t;
 
 typedef struct {
@@ -241,6 +248,8 @@ typedef struct {
     char                    *user_controls;
     char                    *agc_data;
     char                    *pin_code;
+    char                    *admin_pin_code;
+    char                    *user_pin_code;
     //
     char                    *sound_prefix_path;
     char                    *sound_moh;
@@ -249,6 +258,7 @@ typedef struct {
     char                    *sound_member_join;
     char                    *sound_member_leave;
     char                    *sound_member_welcome;
+    char                    *sound_member_bye;
     char                    *sound_member_alone;
     char                    *sound_member_kicked;
     char                    *sound_member_muted;
@@ -269,7 +279,7 @@ typedef struct {
     uint8_t                 vad_enabled;
     uint8_t                 cng_enabled;
     uint8_t                 agc_enabled;
-    uint8_t                 authentication_enabled;
+    uint8_t                 pin_auth_enabled;
     uint8_t                 transcoding_enabled;
     uint8_t                 allow_video;
 } conference_profile_t;

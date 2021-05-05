@@ -4,10 +4,6 @@
  **/
 #include "mod_xconf.h"
 
-/**
- ** all the commands will perform in a member thread because of doesn't use locks
- **/
-
 switch_status_t member_cmd_hangup(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
@@ -146,8 +142,7 @@ switch_status_t member_cmd_vol_listen_adj(void *conference_ref, void *member_ref
     return SWITCH_STATUS_SUCCESS;
 }
 
-/* playback file for conference */
-switch_status_t member_cmd_play(void *conference_ref, void *member_ref, void *action_ref) {
+switch_status_t member_cmd_playback(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -160,8 +155,7 @@ switch_status_t member_cmd_play(void *conference_ref, void *member_ref, void *ac
     return SWITCH_STATUS_SUCCESS;
 }
 
-/* stop playback current file */
-switch_status_t member_cmd_play_stop(void *conference_ref, void *member_ref, void *action_ref) {
+switch_status_t member_cmd_playback_stop(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -257,10 +251,10 @@ switch_status_t conf_action_parse(char *action_str, controls_profile_t *profile,
         action->fnc = member_cmd_vol_listen_adj;
     } else if(strncasecmp(action_str, "playback:", 9) == 0) {
         action->args = switch_core_strdup(profile->pool, action_str + 9);
-        action->fnc = member_cmd_play;
+        action->fnc = member_cmd_playback;
     } else if(strcasecmp(action_str, "stop") == 0) {
         action->args = NULL;
-        action->fnc = member_cmd_play_stop;
+        action->fnc = member_cmd_playback_stop;
     } else if(strncasecmp(action_str, "api:", 4) == 0) {
         action->args = switch_core_strdup(profile->pool, action_str + 4);
         action->fnc = member_cmd_call_api;

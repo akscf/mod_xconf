@@ -49,8 +49,9 @@
             <param name="admin-controls" value="default"/>
             <param name="user-controls" value="default"/>
 
-            <param name="authentication-enable" value="true"/>
-            <param name="pin-code" value="12345678"/>
+            <param name="pin-auth-enable" value="false"/>
+            <param name="admin-pin-code" value="123"/>
+            <param name="user-pin-code" value="456"/>
 
             <!--
              <param name="sound-prefix" value="$${sound_prefix}"/>
@@ -61,6 +62,7 @@
             <param name="sound-member-join" value="tone_stream://%(200,0,500,600,700)"/>
             <param name="sound-member-leave" value="tone_stream://%(500,0,300,200,100,50,25)"/>
             <param name="sound-member-welcome" value="conference/conf-welcome.wav"/>
+            <param name="sound-member-bye" value="conference/conf-goodbye.wav"/>
             <param name="sound-member-alone" value="conference/conf-alone.wav"/>
             <param name="sound-member-kicked" value="conference/conf-kicked.wav"/>
             <param name="sound-member-muted" value="conference/conf-muted.wav"/>

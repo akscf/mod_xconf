@@ -45,15 +45,12 @@ switch_status_t member_payback_stop(member_t *member) {
                 while(member_flag_test(member, MF_PLAYBACK)) {
                     if(x > 1000) {
                         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Couldn't stop playback (member: %s)\n", member->session_id);
-                        status = SWITCH_STATUS_FALSE; break;
+                        status = SWITCH_STATUS_FALSE;
+                        break;
                     }
                     x++;
                     switch_yield(10000);
                 }
-            } else {
-                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "member->playpack_handle == NULL (member: %s)\n", member->session_id);
-                status = SWITCH_STATUS_FALSE;
-                // switch_ivr_kill_uuid(member->session_id, SWITCH_CAUSE_NORMAL_TEMPORARY_FAILURE);
             }
         }
         member_sem_release(member);
@@ -119,13 +116,13 @@ switch_status_t member_payback(member_t *member, char *path, uint8_t async, void
             } else {
                 expanded = NULL;
             }
-            if(!strncasecmp(path, "say:", 4)) {
+            if(strncasecmp(path, "say:", 4) == 0) {
                 if(conference->tts_engine && conference->tts_voice) {
                     status = switch_ivr_speak_text(member->session, conference->tts_engine, conference->tts_voice, path + 4, ap);
                 } else {
                     status = SWITCH_STATUS_FALSE;
                 }
-            } else if(!strncasecmp(path, "local_", 6) || !strncasecmp(path, "tone_", 5)) {
+            } else if(strstr(path, "://") != NULL) {
                 status = switch_ivr_play_file(member->session, member->playpack_handle, path, ap);
             } else {
                 if(switch_file_exists(path, NULL) == SWITCH_STATUS_SUCCESS) {
