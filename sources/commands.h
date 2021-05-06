@@ -3,7 +3,9 @@
  * https://akscf.me/
  **/
 #include "mod_xconf.h"
+extern switch_status_t member_payback_stop(member_t *member);
 
+//---------------------------------------------------------------------------------------------------------------------------------------------------
 switch_status_t member_cmd_hangup(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
@@ -147,24 +149,63 @@ switch_status_t member_cmd_playback(void *conference_ref, void *member_ref, void
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
 
-    if(zstr(action->args)) {
-       return SWITCH_STATUS_FALSE;
+    if(!zstr(action->args)) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "PLAY: conference=%s, members=%s, args=%s\n", conference->name, member->session_id, action->args);
+        if(strcasecmp(action->args, "stop") == 0) {
+            return member_payback_stop(member);
+        } else {
+            return member_payback(member, action->args, true, NULL, 0);
+        }
     }
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "PLAY: conference=%s, members=%s, args=%s\n", conference->name, member->session_id, action->args);
 
     return SWITCH_STATUS_SUCCESS;
 }
 
-switch_status_t member_cmd_playback_stop(void *conference_ref, void *member_ref, void *action_ref) {
+switch_status_t member_cmd_swith_to_admin(void *conference_ref, void *member_ref, void *action_ref) {
+    switch_status_t status = SWITCH_STATUS_FALSE;
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
+    char pin_code_buffer[PIN_CODE_BUFFER_SIZE] = { 0 };
+    char term = '\0';
+    uint32_t pin_code_len = 0;
 
-    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "PLAY_STOP: conference=%s, members=%s, args=%s\n", conference->name, member->session_id, action->args);
+    if(member_flag_test(member, MF_ADMIN)) {
+        return SWITCH_STATUS_SUCCESS;
+    }
+
+    if(!zstr(conference->admin_pin_code)) {
+        pin_code_len = strlen(conference->admin_pin_code);
+        memset(pin_code_buffer, 0, sizeof(pin_code_buffer));
+
+        member_payback(member, conference->sound_enter_pin_code, false, pin_code_buffer, sizeof(pin_code_buffer));
+
+        if(strlen(pin_code_buffer) < pin_code_len) {
+            char *p = (pin_code_buffer + strlen(pin_code_buffer));
+
+            status = switch_ivr_collect_digits_count(member->session, p, sizeof(pin_code_buffer) - strlen(pin_code_buffer), pin_code_len - strlen(pin_code_buffer), "#", &term, 10000, 0, 0);
+            if(status == SWITCH_STATUS_TIMEOUT) {
+                status = SWITCH_STATUS_SUCCESS;
+            }
+        } else {
+            status = SWITCH_STATUS_SUCCESS;
+        }
+        if(status == SWITCH_STATUS_SUCCESS) {
+            if(!zstr(pin_code_buffer)) {
+                if(strcmp(pin_code_buffer, conference->admin_pin_code) == 0) {
+                    member_flag_set(member, MF_ADMIN, true);
+                }
+            }
+            if(!member_flag_test(member, MF_ADMIN)) {
+                member_payback(member, conference->sound_bad_pin_code, false, NULL, 0);
+            }
+        }
+    } else {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "%s: admin pin code is empty\n", conference->name);
+    }
 
     return SWITCH_STATUS_SUCCESS;
 }
-
 
 switch_status_t member_cmd_call_api(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
@@ -237,6 +278,9 @@ switch_status_t conf_action_parse(char *action_str, controls_profile_t *profile,
     } else if(strcasecmp(action_str, "deaf-mute") == 0) {
         action->args = NULL;
         action->fnc = member_cmd_deaf_mute;
+    } else if(strcasecmp(action_str, "admin") == 0) {
+        action->args = NULL;
+        action->fnc = member_cmd_swith_to_admin;
     } else if(strncasecmp(action_str, "vad-level:", 10) == 0) {
         action->args = switch_core_strdup(profile->pool, action_str + 10);
         action->fnc = member_cmd_vad_level_adj;
@@ -252,9 +296,6 @@ switch_status_t conf_action_parse(char *action_str, controls_profile_t *profile,
     } else if(strncasecmp(action_str, "playback:", 9) == 0) {
         action->args = switch_core_strdup(profile->pool, action_str + 9);
         action->fnc = member_cmd_playback;
-    } else if(strcasecmp(action_str, "stop") == 0) {
-        action->args = NULL;
-        action->fnc = member_cmd_playback_stop;
     } else if(strncasecmp(action_str, "api:", 4) == 0) {
         action->args = switch_core_strdup(profile->pool, action_str + 4);
         action->fnc = member_cmd_call_api;

@@ -38,7 +38,8 @@
             <param name="samplerate" value="8000"/>
             <param name="conference-idle-time-max" value="0"/>
             <param name="group-idle-time-max" value="0"/>
-            <param name="transcoding-enable" value="true"/>
+            <param name="audio-transcode-enable" value="true"/>
+            <param name="video-transcode-enable" value="true"/>
             <param name="allow-video" value="true"/>
             <param name="vad-enable" value="true"/>
             <param name="vad-level" value="300"/>

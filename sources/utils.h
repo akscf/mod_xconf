@@ -3,15 +3,13 @@
  * https://akscf.me/
  **/
 #include "mod_xconf.h"
+extern globals_t globals;
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
-
 #define BIT_SET(a,b)   ((a) |= (1UL<<(b)))
 #define BIT_CLEAR(a,b) ((a) &= ~(1UL<<(b)))
 #define BIT_CHECK(a,b) (!!((a) & (1UL<<(b))))
-
-extern globals_t globals;
 
 uint32_t make_id(char *name, uint32_t len) {
     return switch_crc32_8bytes((char *)name, len);
@@ -159,8 +157,10 @@ switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, 
 
     switch_assert(conference);
 
-    if(strcasecmp(fl_name, "trans") == 0) {
-        conference_flag_set(conference, CF_USE_TRANSCODING, fl_op);
+    if(strcasecmp(fl_name, "trans-audio") == 0) {
+        conference_flag_set(conference, CF_AUDIO_TRANSCODE, fl_op);
+    } else if(strcasecmp(fl_name, "trans-video") == 0) {
+        conference_flag_set(conference, CF_VIDEO_TRANSCODE, fl_op);
     } else if(strcasecmp(fl_name, "video") == 0) {
         conference_flag_set(conference, CF_ALLOW_VIDEO, fl_op);
     } else if(strcasecmp(fl_name, "vad") == 0) {
@@ -169,8 +169,6 @@ switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, 
         conference_flag_set(conference, CF_USE_CNG, fl_op);
     } else if(strcasecmp(fl_name, "agc") == 0) {
         conference_flag_set(conference, CF_USE_AGC, fl_op);
-    } else if(strcasecmp(fl_name, "auth") == 0) {
-        conference_flag_set(conference, CF_USE_AUTH, fl_op);
     } else {
         status = SWITCH_STATUS_FALSE;
     }
@@ -223,9 +221,10 @@ void conference_dump_status(conference_t *conference, switch_stream_handle_t *st
     stream->write_function(stream, "User controls............: %s\n", conference->user_controls ? conference->user_controls->name : "n/a");
     stream->write_function(stream, "Admin controls...........: %s\n", conference->admin_controls ? conference->admin_controls->name : "n/a");
     stream->write_function(stream, "Playback status..........: %s\n", conference_flag_test(conference, CF_PLAYBACK) ? "active" : "stopped");
-    stream->write_function(stream, "Access mode..............: %s\n", conference_flag_test(conference, CF_USE_AUTH) ? "free" : "by pin");
+    stream->write_function(stream, "Access mode..............: %s\n", conference_flag_test(conference, CF_USE_AUTH) ? "by pin" : "free");
     stream->write_function(stream, "flags....................: ---------\n");
-    stream->write_function(stream, "  - transcoding..........: %s\n", conference_flag_test(conference, CF_USE_TRANSCODING) ? "on" : "off");
+    stream->write_function(stream, "  - audio trancode.......: %s\n", conference_flag_test(conference, CF_AUDIO_TRANSCODE) ? "on" : "off");
+    stream->write_function(stream, "  - video trancode.......: %s\n", conference_flag_test(conference, CF_VIDEO_TRANSCODE) ? "on" : "off");
     stream->write_function(stream, "  - allow video..........: %s\n", conference_flag_test(conference, CF_ALLOW_VIDEO) ? "on" : "off");
     stream->write_function(stream, "  - vad..................: %s\n", conference_flag_test(conference, CF_USE_VAD) ? "on" : "off");
     stream->write_function(stream, "  - cng..................: %s\n", conference_flag_test(conference, CF_USE_CNG) ? "on" : "off");
@@ -320,6 +319,8 @@ switch_status_t member_parse_flags(member_t *member, char *fl_name, uint8_t fl_o
         member_flag_set(member, MF_AGC, fl_op);
     } else if(strcasecmp(fl_name, "cng") == 0) {
         member_flag_set(member, MF_CNG, fl_op);
+    } else if(strcasecmp(fl_name, "auth") == 0) {
+        member_flag_set(member, MF_AUTHORIZED, fl_op);
     } else {
         status = SWITCH_STATUS_FALSE;
     }

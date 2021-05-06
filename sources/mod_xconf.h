@@ -43,12 +43,13 @@
 
 #define DMPF_ENCRYPTED                          0x00
 
-#define CF_USE_TRANSCODING                      0x00
-#define CF_USE_VAD                              0x01
-#define CF_USE_CNG                              0x02
-#define CF_USE_AGC                              0x03
-#define CF_USE_AUTH                             0x04
-#define CF_ALLOW_VIDEO                          0x05
+#define CF_AUDIO_TRANSCODE                      0x00
+#define CF_VIDEO_TRANSCODE                      0x01
+#define CF_USE_VAD                              0x02
+#define CF_USE_CNG                              0x03
+#define CF_USE_AGC                              0x04
+#define CF_USE_AUTH                             0x05
+#define CF_ALLOW_VIDEO                          0x06
 #define CF_PLAYBACK                             0x1F
 
 #define MF_VAD                                  0x00
@@ -280,7 +281,8 @@ typedef struct {
     uint8_t                 cng_enabled;
     uint8_t                 agc_enabled;
     uint8_t                 pin_auth_enabled;
-    uint8_t                 transcoding_enabled;
+    uint8_t                 audio_transcode_enabled;
+    uint8_t                 video_transcode_enabled;
     uint8_t                 allow_video;
 } conference_profile_t;
 

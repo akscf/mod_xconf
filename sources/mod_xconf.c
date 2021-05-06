@@ -21,7 +21,7 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
 static void *SWITCH_THREAD_FUNC dm_client_thread(switch_thread_t *thread, void *obj);
 static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *obj);
 
-// ---------------------------------------------------------------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------------------------------------------------------------------
 void launch_thread(switch_memory_pool_t *pool, switch_thread_start_t fun, void *data) {
     switch_threadattr_t *attr = NULL;
     switch_thread_t *thread = NULL;
@@ -213,7 +213,7 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                     if(member_can_speak(speaker)) {
                         status = switch_core_session_read_frame(speaker->session, &read_frame, SWITCH_IO_FLAG_NONE, 0);
                         if(SWITCH_READ_ACCEPTABLE(status) && read_frame->samples > 0 && !switch_test_flag(read_frame, SFF_CNG)) {
-                            if(conference_flag_test(conference, CF_USE_TRANSCODING)) {
+                            if(conference_flag_test(conference, CF_AUDIO_TRANSCODE)) {
                                 uint32_t flags = 0;
                                 uint32_t src_smprt = speaker->samplerate;
                                 src_buffer_len = AUDIO_BUFFER_SIZE;
@@ -265,7 +265,7 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                                             fl_has_audio_local = true;
                                         }
 
-                                        /* agc  */
+                                        /* agc */
                                         if(fl_has_audio_local) {
                                             if(member_flag_test(speaker, MF_AGC) && speaker->agc) {
                                                 switch_mutex_lock(speaker->mutex_agc);
@@ -506,7 +506,7 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
 
                     if(member_sem_take(member)) {
                         if(member_can_hear(member)) {
-                            if(conference_flag_test(conference, CF_USE_TRANSCODING)) {
+                            if(conference_flag_test(conference, CF_AUDIO_TRANSCODE)) {
                                 uint32_t flags = 0, cache_id = 0, skip_encode = false;
                                 uint32_t enc_smprt = member->samplerate;
                                 uint32_t enc_buffer_len = AUDIO_BUFFER_SIZE;
@@ -1203,12 +1203,12 @@ static void event_handler_shutdown(switch_event_t *event) {
  "<confname> term - terminate the conferece\n" \
  "<confname> show [status|groups|members]\n" \
  "<confname> playback [stop] filename [async]\n" \
- "<confname> flags [+-][auth|video|trans|vad|cng|agc]\n" \
+ "<confname> flags [+-][trans-audio|trans-video|video|vad|cng|agc]\n" \
  "<confname> member <uuid> kick\n" \
  "<confname> member <uuid> status\n" \
  "<confname> member <uuid> playback [stop] filename [async]\n" \
- "<confname> member <uuid> agc-data level:lowlevel:factor:margin\n" \
- "<confname> member <uuid> flags [+-][speaker|admin|mute|deaf|vad|agc|cng]\n"
+ "<confname> member <uuid> set agc level:lowlevel:factor:margin\n" \
+ "<confname> member <uuid> flags [+-][speaker|admin|auth|mute|deaf|vad|agc|cng]\n"
 
 SWITCH_STANDARD_API(xconf_cmd_function) {
    char *mycmd = NULL, *argv[10] = { 0 };
@@ -1424,18 +1424,24 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
             if(member_sem_take(member)) {
                 if(strcasecmp(member_cmd, "kick") == 0) {
                     member_flag_set(member, MF_KICK, true);
+
                 } else if(strcasecmp(member_cmd, "status") == 0) {
                     member_dump_status(member, stream);
-                } else if(strcasecmp(member_cmd, "agc-data") == 0) {
-                    char *agc_data = (argc >= 5 ? argv[4] : NULL);
-                    if(member_parse_agc_data(member, agc_data) == SWITCH_STATUS_SUCCESS) {
-                        switch_mutex_lock(member->mutex_agc);
-                        if(member->agc) {
-                            switch_agc_set(member->agc, member->agc_lvl, member->agc_low_lvl, member->agc_margin, member->agc_change_factor, member->agc_period_len);
+
+                } else if(strcasecmp(member_cmd, "set") == 0) {
+                    char *set_type = (argc >= 5 ? argv[4] : NULL);
+                    char *set_data = (argc >= 6 ? argv[5] : NULL);
+
+                    if(strcasecmp(set_type, "agc") == 0) {
+                        if(member_parse_agc_data(member, set_data) == SWITCH_STATUS_SUCCESS) {
+                            switch_mutex_lock(member->mutex_agc);
+                            if(member->agc) { switch_agc_set(member->agc, member->agc_lvl, member->agc_low_lvl, member->agc_margin, member->agc_change_factor, member->agc_period_len); }
+                            switch_mutex_unlock(member->mutex_agc);
+                        } else {
+                            resp_err_str = "Malformed agc-data";
                         }
-                        switch_mutex_unlock(member->mutex_agc);
                     } else {
-                        resp_err_str = "Couldn't parse agc data";
+                        resp_err_str = "Unsupported type";
                     }
                 } else if(strcasecmp(member_cmd, "playback") == 0) {
                     char *filename = (argc >= 5 ? argv[4] : NULL);
@@ -1498,7 +1504,7 @@ out:
     return SWITCH_STATUS_SUCCESS;
 }
 
-#define APP_SYNTAX "confName profileName [+-][auth|video|trans|vad|cng|agc]"
+#define APP_SYNTAX "confName profileName [+-][trans-audio|trans-video|video|vad|cng|agc]"
 SWITCH_STANDARD_APP(xconf_app_api) {
     switch_status_t status = SWITCH_STATUS_SUCCESS;
     switch_channel_t *channel = switch_core_session_get_channel(session);
@@ -1623,7 +1629,8 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             conference_parse_agc_data(conference, conf_profile->agc_data);
         }
 
-        conference_flag_set(conference, CF_USE_TRANSCODING, conf_profile->transcoding_enabled);
+        conference_flag_set(conference, CF_AUDIO_TRANSCODE, conf_profile->audio_transcode_enabled);
+        conference_flag_set(conference, CF_VIDEO_TRANSCODE, conf_profile->video_transcode_enabled);
         conference_flag_set(conference, CF_USE_AUTH, conf_profile->pin_auth_enabled);
         conference_flag_set(conference, CF_USE_VAD, conf_profile->vad_enabled);
         conference_flag_set(conference, CF_USE_AGC, conf_profile->agc_enabled);
@@ -2238,7 +2245,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             }
 
             conf_profile->name = switch_core_strdup(pool, name);
-            conf_profile->transcoding_enabled = true;
+            conf_profile->audio_transcode_enabled = true;
+            conf_profile->video_transcode_enabled = true;
             conf_profile->pin_auth_enabled = false;
             conf_profile->vad_enabled = false;
             conf_profile->cng_enabled = false;
@@ -2255,8 +2263,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                 char *var = (char *) switch_xml_attr_soft(param, "name");
                 char *val = (char *) switch_xml_attr_soft(param, "value");
 
-                if(!strcasecmp(var, "transcoding-enable")) {
-                    conf_profile->transcoding_enabled = (strcasecmp(val, "true") == 0 ? true : false);
+                if(!strcasecmp(var, "audio-transcode-enable")) {
+                    conf_profile->audio_transcode_enabled = (strcasecmp(val, "true") == 0 ? true : false);
+                } else if(!strcasecmp(var, "video-transcode-enable")) {
+                    conf_profile->video_transcode_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "allow-video")) {
                     conf_profile->allow_video = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "conference-idle-time-max")) {
