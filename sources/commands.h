@@ -3,7 +3,6 @@
  * https://akscf.me/
  **/
 #include "mod_xconf.h"
-extern switch_status_t member_payback_stop(member_t *member);
 
 //---------------------------------------------------------------------------------------------------------------------------------------------------
 switch_status_t member_cmd_hangup(void *conference_ref, void *member_ref, void *action_ref) {
@@ -150,11 +149,10 @@ switch_status_t member_cmd_playback(void *conference_ref, void *member_ref, void
     member_t *member = (member_t *) member_ref;
 
     if(!zstr(action->args)) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "PLAY: conference=%s, members=%s, args=%s\n", conference->name, member->session_id, action->args);
         if(strcasecmp(action->args, "stop") == 0) {
-            return member_payback_stop(member);
+            return member_playback_stop(member);
         } else {
-            return member_payback(member, action->args, true, NULL, 0);
+            return member_playback(member, action->args, true, NULL, 0);
         }
     }
 
@@ -178,7 +176,7 @@ switch_status_t member_cmd_swith_to_admin(void *conference_ref, void *member_ref
         pin_code_len = strlen(conference->admin_pin_code);
         memset(pin_code_buffer, 0, sizeof(pin_code_buffer));
 
-        member_payback(member, conference->sound_enter_pin_code, false, pin_code_buffer, sizeof(pin_code_buffer));
+        member_playback(member, conference->sound_enter_pin_code, false, pin_code_buffer, sizeof(pin_code_buffer));
 
         if(strlen(pin_code_buffer) < pin_code_len) {
             char *p = (pin_code_buffer + strlen(pin_code_buffer));
@@ -197,7 +195,7 @@ switch_status_t member_cmd_swith_to_admin(void *conference_ref, void *member_ref
                 }
             }
             if(!member_flag_test(member, MF_ADMIN)) {
-                member_payback(member, conference->sound_bad_pin_code, false, NULL, 0);
+                member_playback(member, conference->sound_bad_pin_code, false, NULL, 0);
             }
         }
     } else {

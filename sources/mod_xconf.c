@@ -1105,7 +1105,6 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
                 ahdr_ptr = (void *)(recv_buffer + sizeof(*phdr_ptr));
                 paylod_data_ptr = (void *)(recv_buffer + sizeof(*phdr_ptr) + sizeof(*ahdr_ptr));
 
-                /* validate magic number for exclude decryption errors */
                 if(ahdr_ptr->magic == DM_PAYLOAD_MAGIC) {
                     if(ahdr_ptr->data_len && ahdr_ptr->data_len < AUDIO_BUFFER_SIZE) {
                         conference = conference_lookup_by_id(ahdr_ptr->conference_id);
@@ -1126,7 +1125,7 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
                         }
                     }
                 } else {
-                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Malformed payload: invalid magic!\n");
+                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Decryption fail! (ip: %s)\n", ip_addr_remote);
                 }
             }
         }
@@ -1271,7 +1270,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
         stream->write_function(stream, "-ERR: conference '%s' not exists\n", conf_name);
         goto out;
     }
-
+    /* conference sub-command: show */
     if(strcasecmp(conf_cmd, "show") == 0) {
         if(!what_name) { goto usage; }
 
@@ -1282,7 +1281,6 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
             }
             goto out;
         }
-
         if(strcasecmp(what_name, "groups") == 0) {
             const void *hkey = NULL; void *hval = NULL;
             switch_hash_index_t *hidx = NULL;
@@ -1308,7 +1306,6 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
             stream->write_function(stream, "total: %i\n", total);
             goto out;
         }
-
         if(strcasecmp(what_name, "members") == 0) {
             const void *hkey = NULL; void *hval = NULL;
             const void *hkey2 = NULL; void *hval2 = NULL;
@@ -1356,8 +1353,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
         }
         goto usage;
     }
-
-    /* conference flags */
+    /* playback a file in the conference */
     if(strcasecmp(conf_cmd, "playback") == 0) {
         char *filename = (argc >= 3 ? argv[2] : NULL);
         char *async = (argc >= 4 ? argv[3] : NULL);
@@ -1365,15 +1361,17 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
 
         if(!zstr(filename)) {
             if(strcasecmp(filename, "stop") == 0) {
-                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "conference playback stop\n");
+                conference_playback_stop(conference);
             } else {
-                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "conference playback: filename=%s, async=%i\n", filename, fasync);
+                conference_playback(conference, filename, fasync);
             }
         } else {
             stream->write_function(stream, "-ERR: Missing filename\n");
         }
         goto out;
-    } else if(strcasecmp(conf_cmd, "flags") == 0) {
+    }
+    /* set conference flags */
+    if(strcasecmp(conf_cmd, "flags") == 0) {
         char *resp_err_str = NULL;
 
         if(argc <= 2) { goto usage; }
@@ -1398,8 +1396,18 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
         }
         goto out;
     }
-
-    /* member actions */
+    /* terminate the conference */
+    if(strcasecmp(conf_cmd, "term") == 0) {
+        if(conference_sem_take(conference)) {
+            if(conference->fl_ready) {
+                conference->fl_do_destroy = true;
+    	    }
+            conference_sem_release(conference);
+        }
+        stream->write_function(stream, "+OK\n");
+        goto out;
+    }
+    /* member sub-commands */
     if(strcasecmp(conf_cmd, "member") == 0) {
         member_t *member = NULL;
         char *member_id = (argc >= 3 ? argv[2] : NULL);
@@ -1450,11 +1458,11 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
 
                     if(!zstr(filename)) {
                         if(strcasecmp(filename, "stop") == 0) {
-                            if(member_payback_stop(member) != SWITCH_STATUS_SUCCESS){
+                            if(member_playback_stop(member) != SWITCH_STATUS_SUCCESS){
                                 resp_err_str = "Couldn't stop playback";
                             }
                         } else {
-                            if(member_payback(member, filename, fasync, NULL, 0) != SWITCH_STATUS_SUCCESS) {
+                            if(member_playback(member, filename, fasync, NULL, 0) != SWITCH_STATUS_SUCCESS) {
                                 resp_err_str = "Playback fail";
                             }
                         }
@@ -1482,17 +1490,6 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
         if(show_usage) { goto usage; }
         if(!zstr(resp_err_str)) { stream->write_function(stream, "-ERR: %s\n", resp_err_str); }
         else { stream->write_function(stream, "+OK\n"); }
-        goto out;
-    }
-
-    if(strcasecmp(conf_cmd, "term") == 0) {
-        if(conference_sem_take(conference)) {
-            if(conference->fl_ready) {
-                conference->fl_do_destroy = true;
-    	    }
-            conference_sem_release(conference);
-        }
-        stream->write_function(stream, "+OK\n");
         goto out;
     }
 
@@ -1578,6 +1575,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         switch_mutex_init(&conference->mutex_listeners, SWITCH_MUTEX_NESTED, pool_tmp);
         switch_mutex_init(&conference->mutex_speakers, SWITCH_MUTEX_NESTED, pool_tmp);
         switch_mutex_init(&conference->mutex_flags, SWITCH_MUTEX_NESTED, pool_tmp);
+        switch_mutex_init(&conference->mutex_playback, SWITCH_MUTEX_NESTED, pool_tmp);
         switch_queue_create(&conference->commands_q_in, globals.local_queue_size, pool_tmp);
         switch_queue_create(&conference->audio_q_in, globals.local_queue_size, pool_tmp);
         switch_queue_create(&conference->audio_q_out, globals.local_queue_size, pool_tmp);
@@ -1598,6 +1596,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         conference->cng_lvl = conf_profile->cng_level;
         conference->user_controls = controls_profile_lookup(conf_profile->user_controls);
         conference->admin_controls = controls_profile_lookup(conf_profile->admin_controls);
+        conference->playback_handle = switch_core_alloc(pool_tmp, sizeof(switch_file_handle_t));
         conference->agc_lvl = 0;
         conference->agc_low_lvl = 0;
         conference->agc_margin = 20;
@@ -1683,7 +1682,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     member->read_codec = switch_core_session_get_read_codec(session);
     member->write_codec = switch_core_session_get_write_codec(session);
     member->au_buffer = switch_core_session_alloc(session, AUDIO_BUFFER_SIZE);
-    member->playpack_handle = switch_core_session_alloc(session, sizeof(switch_file_handle_t));
+    member->playback_handle = switch_core_session_alloc(session, sizeof(switch_file_handle_t));
     member->caller_id = switch_channel_get_variable(channel, "caller_id_number");
     member->flags = 0x0;
     member->fl_au_rdy_wr = true;
@@ -1692,18 +1691,17 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     write_frame.data = switch_core_session_alloc(session, AUDIO_BUFFER_SIZE);
     member->samples_ptime = (((read_impl.samples_per_second / 1000) * member->ptime) * read_impl.number_of_channels);
 
+    /* comfort noises */
+    cn_buffer_size = (member->samples_ptime * 2);
+    cn_buffer = switch_core_session_alloc(session, cn_buffer_size);
+
     if(!member->read_codec || !member->write_codec) {
         switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s: channel has no media\n", session_id);
         switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Channel has no media!");
         goto out;
     }
-    if(member->au_buffer == NULL || write_frame.data == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s: not enough memory\n", session_id);
-        switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Not enough memory!");
-        goto out;
-    }
-    if(member->playpack_handle == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s: not enough memory\n", session_id);
+    if(member->au_buffer == NULL || member->playback_handle == NULL || write_frame.data == NULL || cn_buffer == NULL) {
+        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s: mem fail\n", session_id);
         switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Not enough memory!");
         goto out;
     }
@@ -1717,10 +1715,6 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Timer fail!");
         goto out;
     }
-
-    /* comfort noises */
-    cn_buffer_size = (member->samples_ptime * 2);
-    cn_buffer = switch_core_session_alloc(session, cn_buffer_size);
 
     /* flags */
     member_flag_set(member, MF_VAD, conference_flag_test(conference, CF_USE_VAD));
@@ -1779,14 +1773,14 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         }
         if(!member_flag_test(member, MF_AUTHORIZED)) {
             if(zstr(conference->admin_pin_code) || zstr(conference->user_pin_code)) {
-                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "%s: admin or user is pin empty\n", conference->name);
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "%s: admin or user pin is empty\n", conference->name);
                 break;
             }
             if(!pin_code_len) {
                 pin_code_len = MAX(strlen(conference->admin_pin_code), strlen(conference->user_pin_code));
             }
             if(fl_play_enter_pin) {
-                member_payback(member, conference->sound_enter_pin_code, false, pin_code_buffer, sizeof(pin_code_buffer));
+                member_playback(member, conference->sound_enter_pin_code, false, pin_code_buffer, sizeof(pin_code_buffer));
                 fl_play_enter_pin = false;
             }
             status = SWITCH_STATUS_FALSE;
@@ -1814,8 +1808,9 @@ SWITCH_STANDARD_APP(xconf_app_api) {
                 if(!member_flag_test(member, MF_AUTHORIZED)) {
                     auth_attempts--;
                     memset(pin_code_buffer, 0, sizeof(pin_code_buffer));
-                    member_payback(member, conference->sound_bad_pin_code, false, NULL, 0);
+                    member_playback(member, conference->sound_bad_pin_code, false, NULL, 0);
                 } else {
+                    auth_attempts = MEMBER_AUTH_ATTEMPTS;
                     pin_code_len = 0;
                 }
             }
@@ -1827,7 +1822,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
 
         /* welcome sound */
         if(fl_play_welcome) {
-            member_payback(member, conference->sound_member_welcome, false, NULL, 0);
+            member_playback(member, conference->sound_member_welcome, false, NULL, 0);
             fl_play_welcome = false;
         }
 
@@ -1836,17 +1831,17 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             if(globals.fl_dm_enabled) {
                 if(conference->members_total <= 1) {
                     if(fl_play_alone) {
-                        member_payback(member, conference->sound_member_alone, false, NULL, 0);
-                        member_payback(member, conference->sound_moh, true, NULL, 0);
-                        moh_check_timer = switch_epoch_time_now(NULL) + 5;
+                        member_playback(member, conference->sound_member_alone, false, NULL, 0);
+                        member_playback(member, conference->sound_moh, true, NULL, 0);
+                        moh_check_timer = (switch_epoch_time_now(NULL) + MEMBER_MOH_CHECK_INTERVAL);
                         fl_play_alone = false;
                     }
                 }
             } else {
                 if(fl_play_alone) {
-                    member_payback(member, conference->sound_member_alone, false, NULL, 0);
-                    member_payback(member, conference->sound_moh, true, NULL, 0);
-                    moh_check_timer = switch_epoch_time_now(NULL) + 5;
+                    member_playback(member, conference->sound_member_alone, false, NULL, 0);
+                    member_playback(member, conference->sound_moh, true, NULL, 0);
+                    moh_check_timer = (switch_epoch_time_now(NULL) + MEMBER_MOH_CHECK_INTERVAL);
                     fl_play_alone = false;
                 }
             }
@@ -1855,13 +1850,13 @@ SWITCH_STANDARD_APP(xconf_app_api) {
                     if(!member_flag_test(member, MF_PLAYBACK)) {
                         fl_play_alone = true;
                     } else {
-                        moh_check_timer = switch_epoch_time_now(NULL) + 5;
+                        moh_check_timer = (switch_epoch_time_now(NULL) + MEMBER_MOH_CHECK_INTERVAL);
                     }
                 }
             }
         } else {
             if(!fl_play_alone) {
-                member_payback_stop(member);
+                member_playback_stop(member);
             }
             moh_check_timer = 0;
             fl_play_alone = true;
@@ -1973,7 +1968,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
                     conference->speakers_local++;
                     switch_mutex_unlock(conference->mutex);
 
-                    member_payback(member, conference->sound_member_speaker, false, NULL, 0);
+                    member_playback(member, conference->sound_member_speaker, false, NULL, 0);
                 } else {
                     switch_mutex_lock(conference->mutex_speakers);
                     switch_core_inthash_insert(conference->speakers, member->id, member);
@@ -1983,14 +1978,14 @@ SWITCH_STANDARD_APP(xconf_app_api) {
                     conference->speakers_local--;
                     switch_mutex_unlock(conference->mutex);
 
-                    member_payback(member, conference->sound_member_unspeaker, false, NULL, 0);
+                    member_playback(member, conference->sound_member_unspeaker, false, NULL, 0);
                 }
             }
             if(member_flag_test(member, MF_ADMIN) != BIT_CHECK(member_flags_old, MF_ADMIN)) {
-                member_payback(member, (member_flag_test(member, MF_ADMIN) ? conference->sound_member_admin : conference->sound_member_unadmin), false, NULL, 0);
+                member_playback(member, (member_flag_test(member, MF_ADMIN) ? conference->sound_member_admin : conference->sound_member_unadmin), false, NULL, 0);
             }
             if(member_flag_test(member, MF_MUTED) != BIT_CHECK(member_flags_old, MF_MUTED)) {
-                member_payback(member, (member_flag_test(member, MF_MUTED) ? conference->sound_member_muted : conference->sound_member_unmuted), false, NULL, 0);
+                member_playback(member, (member_flag_test(member, MF_MUTED) ? conference->sound_member_muted : conference->sound_member_unmuted), false, NULL, 0);
             }
             /* update local */
             member_flags_old = member->flags;
@@ -2008,9 +2003,9 @@ out:
 
     if(switch_channel_ready(channel)) {
         if(member_flag_test(member, MF_KICK)) {
-            member_payback(member, conference->sound_member_kicked, false, NULL, 0);
+            member_playback(member, conference->sound_member_kicked, false, NULL, 0);
         } else {
-            member_payback(member, conference->sound_member_bye, false, NULL, 0);
+            member_playback(member, conference->sound_member_bye, false, NULL, 0);
         }
     }
 

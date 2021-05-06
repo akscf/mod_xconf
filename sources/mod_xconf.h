@@ -22,8 +22,8 @@
 #define DTMF_CMD_BUFFER_SIZE                    DTMF_CMD_MAX_LEN + 1
 #define PIN_CODE_MAX_LEN                        10
 #define PIN_CODE_BUFFER_SIZE                    PIN_CODE_MAX_LEN + 1
-#define MEMBER_AUTH_TIME                        45 // sec
 #define MEMBER_AUTH_ATTEMPTS                    3
+#define MEMBER_MOH_CHECK_INTERVAL               5   // sec
 
 #define DM_PAYLOAD_AUDIO                        0xA0
 #define DM_PAYLOAD_VIDEO                        0xA1
@@ -37,7 +37,7 @@
 #define DM_IO_BUFFER_SIZE                       4096
 #define DM_MULTICAST_TTL                        1
 #define DM_MODE_MILTICAST                       1
-#define DM_MODE_P2P                             2
+#define DM_MODE_P2P                             2   // point-to-point
 #define DM_SALT_SIZE                            16
 #define DM_SALT_LIFE_TIME                       900 // sec
 
@@ -112,13 +112,6 @@ typedef struct {
 } controls_profile_action_t;
 
 typedef struct {
-    uint32_t                flags;
-    uint32_t                position;
-    char                    *file_name;
-
-} conference_file_handler_t;
-
-typedef struct {
     uint8_t                 fl_ready;               //
     uint8_t                 fl_destroyed;           //
     uint8_t                 fl_au_rdy_wr;           //
@@ -154,7 +147,7 @@ typedef struct {
     switch_codec_t          *write_codec;           //
     controls_profile_t      *admin_controls;        //
     controls_profile_t      *user_controls;         //
-    switch_file_handle_t    *playpack_handle;       //
+    switch_file_handle_t    *playback_handle;       //
     //
     uint32_t                au_buffer_id;           //
     uint32_t                au_data_len;            //
@@ -231,6 +224,7 @@ typedef struct {
     switch_mutex_t          *mutex_sequence;        //
     switch_mutex_t          *mutex_listeners;       //
     switch_mutex_t          *mutex_speakers;        //
+    switch_mutex_t          *mutex_playback;        //
     switch_inthash_t        *listeners;             // (member_group_t)
     switch_inthash_t        *speakers;              // (member_t)
     switch_hash_t           *members_idx_hash;      //
@@ -239,6 +233,7 @@ typedef struct {
     switch_queue_t          *audio_q_out;           // (audio_tranfser_buffer_t)
     controls_profile_t      *admin_controls;        //
     controls_profile_t      *user_controls;         //
+    switch_file_handle_t    *playback_handle;
 //    switch_mutex_t          *mutex_nodes_map;
 //    switch_inthash_t        *nodes_map;
 } conference_t;
