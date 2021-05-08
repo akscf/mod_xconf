@@ -268,6 +268,8 @@ switch_status_t conference_playback(conference_t *conference, char *path, uint8_
         if(status == SWITCH_STATUS_SUCCESS) {
             char *epname = (dpath ? dpath : path);
             switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "conf playback: %s\n", epname);
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "not yet implemented\n");
+            status = SWITCH_STATUS_FALSE;
         }
         switch_safe_free(dpath);
 

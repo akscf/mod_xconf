@@ -440,6 +440,7 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
     switch_byte_t *enc_buffer = NULL;
     switch_timer_t timer = { 0 };
     switch_hash_index_t *hidx = NULL;
+    uint32_t dlock_cnt = 0;
     uint32_t group_id = group->id;
     time_t term_time = 0;
     void *pop = NULL;
@@ -602,7 +603,12 @@ out:
     group->fl_destroyed = true;
 
     while(group->tx_sem > 0) {
-        switch_yield(50000);
+        switch_yield(100000);
+        dlock_cnt++;
+        if(dlock_cnt > 100) {
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "%s: Can't destroy group '%i' (lost '%i' semaphores)\n", conference->name, group_id, conference->tx_sem);
+            dlock_cnt = 0;
+        }
     }
 
     switch_mutex_lock(conference->mutex_listeners);
@@ -1827,9 +1833,18 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         }
 
         /* alone sound */
-        if(conference->members_local == 1) {
-            if(globals.fl_dm_enabled) {
-                if(conference->members_total <= 1) {
+        if(!globals.fl_simple_slave_mode) {
+            if(conference->members_local == 1) {
+                if(globals.fl_dm_enabled) {
+                    if(conference->members_total <= 1) {
+                        if(fl_play_alone) {
+                            member_playback(member, conference->sound_member_alone, false, NULL, 0);
+                            member_playback(member, conference->sound_moh, true, NULL, 0);
+                            moh_check_timer = (switch_epoch_time_now(NULL) + MEMBER_MOH_CHECK_INTERVAL);
+                            fl_play_alone = false;
+                        }
+                    }
+                } else {
                     if(fl_play_alone) {
                         member_playback(member, conference->sound_member_alone, false, NULL, 0);
                         member_playback(member, conference->sound_moh, true, NULL, 0);
@@ -1837,29 +1852,22 @@ SWITCH_STANDARD_APP(xconf_app_api) {
                         fl_play_alone = false;
                     }
                 }
-            } else {
-                if(fl_play_alone) {
-                    member_playback(member, conference->sound_member_alone, false, NULL, 0);
-                    member_playback(member, conference->sound_moh, true, NULL, 0);
-                    moh_check_timer = (switch_epoch_time_now(NULL) + MEMBER_MOH_CHECK_INTERVAL);
-                    fl_play_alone = false;
-                }
-            }
-            if(!fl_play_alone && (moh_check_timer > 0 && moh_check_timer <= switch_epoch_time_now(NULL))) {
-                if(!zstr(conference->sound_moh)) {
-                    if(!member_flag_test(member, MF_PLAYBACK)) {
-                        fl_play_alone = true;
-                    } else {
-                        moh_check_timer = (switch_epoch_time_now(NULL) + MEMBER_MOH_CHECK_INTERVAL);
+                if(!fl_play_alone && (moh_check_timer > 0 && moh_check_timer <= switch_epoch_time_now(NULL))) {
+                    if(!zstr(conference->sound_moh)) {
+                        if(!member_flag_test(member, MF_PLAYBACK)) {
+                            fl_play_alone = true;
+                        } else {
+                            moh_check_timer = (switch_epoch_time_now(NULL) + MEMBER_MOH_CHECK_INTERVAL);
+                        }
                     }
                 }
+            } else {
+                if(!fl_play_alone) {
+                    member_playback_stop(member);
+                }
+                moh_check_timer = 0;
+                fl_play_alone = true;
             }
-        } else {
-            if(!fl_play_alone) {
-                member_playback_stop(member);
-            }
-            moh_check_timer = 0;
-            fl_play_alone = true;
         }
 
         /* audio */
@@ -2088,9 +2096,11 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
     switch_mutex_init(&globals.mutex_controls_profiles, SWITCH_MUTEX_NESTED, pool);
 
     globals.dm_node_id = rand();
+    globals.fl_simple_slave_mode = false; /* temporary */
     globals.fl_dm_enabled = false;
     globals.fl_dm_auth_enabled = true;
     globals.fl_dm_encrypt_payload = true;
+    globals.fl_simple_slave_mode = false;
     globals.listener_group_capacity = 250;
     globals.audio_cache_size = 5;
     globals.local_queue_size = 16;
@@ -2110,6 +2120,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
 
             if(!strcasecmp(var, "listener-group-capacity")) {
                 globals.listener_group_capacity = atoi(val);
+            } else if(!strcasecmp(var, "simple-slave-mode")) {
+                globals.fl_simple_slave_mode = (strcasecmp(val, "true") == 0 ? true : false);
             }
         }
     }
@@ -2465,9 +2477,9 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_xconf_shutdown) {
         }
     }
 
-    /* conferences hash */
+    /* conferences */
     switch_mutex_lock(globals.mutex_conferences);
-    while ((hidx = switch_core_hash_first_iter(globals.conferences_hash, hidx))) {
+    for(hidx = switch_core_hash_first_iter(globals.conferences_hash, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
         switch_core_hash_this(hidx, NULL, NULL, &hval);
         conference_t *conf = (conference_t *) hval;
 
@@ -2480,14 +2492,9 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_xconf_shutdown) {
     switch_core_inthash_destroy(&globals.conferences_hash);
     switch_mutex_unlock(globals.mutex_conferences);
 
-    /* conferences profiles hash */
-    switch_mutex_lock(globals.mutex_conf_profiles);
-    switch_core_hash_destroy(&globals.conferences_profiles_hash);
-    switch_mutex_unlock(globals.mutex_conf_profiles);
-
-    /* controls hash */
+    /* controls */
     switch_mutex_lock(globals.mutex_controls_profiles);
-    while ((hidx = switch_core_hash_first_iter(globals.controls_profiles_hash, hidx))) {
+    for(hidx = switch_core_hash_first_iter(globals.controls_profiles_hash, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
         switch_core_hash_this(hidx, NULL, NULL, &hval);
         controls_profile_t *profile = (controls_profile_t *) hval;
 
@@ -2496,10 +2503,14 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_xconf_shutdown) {
             switch_core_destroy_memory_pool(&profile->pool);
         }
     }
-
     switch_safe_free(hidx);
     switch_core_hash_destroy(&globals.controls_profiles_hash);
     switch_mutex_unlock(globals.mutex_controls_profiles);
+
+    /* conferences profiles */
+    switch_mutex_lock(globals.mutex_conf_profiles);
+    switch_core_hash_destroy(&globals.conferences_profiles_hash);
+    switch_mutex_unlock(globals.mutex_conf_profiles);
 
     return SWITCH_STATUS_SUCCESS;
 }
