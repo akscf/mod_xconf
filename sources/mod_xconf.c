@@ -1082,7 +1082,7 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
                 nodes_count++;
 
             } else {
-                if(phdr_ptr->packet_id > node_stat->last_id) {
+                if(!node_stat->last_id || phdr_ptr->packet_id > node_stat->last_id) {
                     node_stat->last_id = phdr_ptr->packet_id;
                     node_stat->expiry = (switch_epoch_time_now(NULL) + DM_NODE_LIFETIME);
                 } else {
