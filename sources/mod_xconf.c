@@ -144,7 +144,7 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
     switch_timer_t timer = { 0 };
     switch_frame_t *read_frame = NULL;
     void *pop = NULL;
-    uint32_t mix_passes = 0, mix_buffer_len = 0, src_buffer_len = 0, net_buffer_len = 0, mix_buf_channels = 0, buf_out_seq = 0;
+    uint32_t mix_passes = 0, mix_buffer_len = 0, src_buffer_len = 0, net_buffer_len = 0, buf_out_seq = 0;
     uint8_t fl_has_audio_local, fl_has_audio_dm;
 
     if(!conference_sem_take(conference)) {
@@ -184,7 +184,6 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
         mix_buffer_len = 0;
         src_buffer_len = 0;
         net_buffer_len = 0;
-        mix_buf_channels = 0;
         fl_has_audio_local = false;
         fl_has_audio_dm = false;
 
@@ -194,6 +193,10 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                 if(atbuf && atbuf->data_len) {
                     memcpy(net_buffer, atbuf->data, atbuf->data_len);
                     net_buffer_len = atbuf->data_len;
+
+                    if(atbuf->channels != conference->channels) {
+                        // todo
+                    }
                     fl_has_audio_dm = true;
                 }
                 audio_tranfser_buffer_free(atbuf);
@@ -220,10 +223,8 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
 
                                 if(switch_core_codec_ready(speaker->read_codec)) {
                                     if(switch_core_codec_decode(speaker->read_codec, NULL, read_frame->data, read_frame->datalen, speaker->samplerate, src_buffer, &src_buffer_len, &src_smprt, &flags) == SWITCH_STATUS_SUCCESS) {
-                                        if(!mix_buf_channels) {
-                                            mix_buf_channels = speaker->channels;
-                                        }
-                                        if(mix_buf_channels != speaker->channels) {
+                                        /* mux-demux */
+                                        if(speaker->channels != conference->channels) {
                                             // todo
                                         }
 
@@ -278,7 +279,6 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                             } else {
                                 memcpy(src_buffer, read_frame->data, read_frame->datalen);
                                 src_buffer_len = read_frame->datalen;
-                                mix_buf_channels = speaker->channels;
                                 fl_has_audio_local = true;
                                 member_flag_set(speaker, MF_SPEAKING, true);
                             }
@@ -312,7 +312,7 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
 
                 atb->conference_id = conference->id;
                 atb->samplerate = conference->samplerate;
-                atb->channels = mix_buf_channels;
+                atb->channels = conference->channels;
                 atb->id = buf_out_seq;
 
                 if(switch_queue_trypush(globals.dm_audio_queue_out, atb) != SWITCH_STATUS_SUCCESS) {
@@ -337,7 +337,7 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
             audio_tranfser_buffer_alloc(&atb, mix_buffer, mix_buffer_len);
             atb->conference_id = conference->id;
             atb->samplerate = conference->samplerate;
-            atb->channels = mix_buf_channels;
+            atb->channels = conference->channels;
             atb->id = buf_out_seq;
 
             if(switch_queue_trypush(conference->audio_q_out, atb) != SWITCH_STATUS_SUCCESS) {
@@ -1114,7 +1114,6 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
                 if(ahdr_ptr->magic == DM_PAYLOAD_MAGIC) {
                     if(ahdr_ptr->data_len && ahdr_ptr->data_len < AUDIO_BUFFER_SIZE) {
                         conference = conference_lookup_by_id(ahdr_ptr->conference_id);
-
                         if(conference_sem_take(conference)) {
                             audio_tranfser_buffer_t *atbuf = NULL;
                             audio_tranfser_buffer_alloc(&atbuf, paylod_data_ptr, ahdr_ptr->data_len);
@@ -1208,7 +1207,7 @@ static void event_handler_shutdown(switch_event_t *event) {
  "<confname> term - terminate the conferece\n" \
  "<confname> show [status|groups|members]\n" \
  "<confname> playback [stop] filename [async]\n" \
- "<confname> flags [+-][trans-audio|trans-video|video|vad|cng|agc]\n" \
+ "<confname> flags [+-][trans-audio|trans-video|video|asnd|vad|cng|agc]\n" \
  "<confname> member <uuid> kick\n" \
  "<confname> member <uuid> status\n" \
  "<confname> member <uuid> playback [stop] filename [async]\n" \
@@ -1246,8 +1245,8 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                 conference_t *conference = (conference_t *)hval;
 
                 if(conference_sem_take(conference)) {
-                    stream->write_function(stream, "%s [0x%X / %iHz / %ims] (local-members: %i, local-speakes: %i, total-members: %i, total-speakes: %i, type: %s)\n",
-                        conference->name, conference->id, conference->samplerate, conference->ptime, conference->members_local, conference->speakers_local, conference->members_total, conference->speakers_total,
+                    stream->write_function(stream, "%s [0x%X / %iHz / %i / %ims] (local-members: %i, local-speakes: %i, total-members: %i, total-speakes: %i, type: %s)\n",
+                        conference->name, conference->id, conference->samplerate, conference->channels, conference->ptime, conference->members_local, conference->speakers_local, conference->members_total, conference->speakers_total,
                         (conference_flag_test(conference, CF_USE_AUTH) ? "public" : "private")
                     );
                     conference_sem_release(conference);
@@ -1507,7 +1506,7 @@ out:
     return SWITCH_STATUS_SUCCESS;
 }
 
-#define APP_SYNTAX "confName profileName [+-][trans-audio|trans-video|video|vad|cng|agc]"
+#define APP_SYNTAX "confName profileName [+-][trans-audio|trans-video|video|asnd|vad|cng|agc]"
 SWITCH_STANDARD_APP(xconf_app_api) {
     switch_status_t status = SWITCH_STATUS_SUCCESS;
     switch_channel_t *channel = switch_core_session_get_channel(session);
@@ -1595,6 +1594,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         conference->admin_pin_code = (conf_profile->admin_pin_code ? switch_core_strdup(pool_tmp, conf_profile->admin_pin_code) : NULL);
         conference->user_pin_code = (conf_profile->user_pin_code ? switch_core_strdup(pool_tmp, conf_profile->user_pin_code) : NULL);
         conference->samplerate = conf_profile->samplerate;
+        conference->channels = conf_profile->channels;
         conference->ptime = conf_profile->ptime;
         conference->conf_idle_max = conf_profile->conf_idle_max;
         conference->group_idle_max = conf_profile->group_idle_max;
@@ -1636,6 +1636,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
 
         conference_flag_set(conference, CF_AUDIO_TRANSCODE, conf_profile->audio_transcode_enabled);
         conference_flag_set(conference, CF_VIDEO_TRANSCODE, conf_profile->video_transcode_enabled);
+        conference_flag_set(conference, CF_ALONE_SOUND, conf_profile->alone_sound_enabled);
         conference_flag_set(conference, CF_USE_AUTH, conf_profile->pin_auth_enabled);
         conference_flag_set(conference, CF_USE_VAD, conf_profile->vad_enabled);
         conference_flag_set(conference, CF_USE_AGC, conf_profile->agc_enabled);
@@ -1767,7 +1768,6 @@ SWITCH_STANDARD_APP(xconf_app_api) {
 
     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "member '%s' joined to '%s' [group: %03i, authorized: %i]\n", member->session_id, conference->name, group->id, member_flag_test(member, MF_AUTHORIZED));
 
-    switch_channel_audio_sync(channel);
     while(true) {
         if(!switch_channel_ready(channel) || globals.fl_shutdown || !conference->fl_ready) {
             break;
@@ -1833,7 +1833,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         }
 
         /* alone sound */
-        if(!globals.fl_simple_slave_mode) {
+        if(conference_flag_test(conference, CF_ALONE_SOUND)) {
             if(conference->members_local == 1) {
                 if(globals.fl_dm_enabled) {
                     if(conference->members_total <= 1) {
@@ -1999,6 +1999,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             member_flags_old = member->flags;
             switch_mutex_unlock(member->mutex_flags);
         }
+
         switch_core_timer_next(&timer);
     }
     goto out;
@@ -2096,11 +2097,9 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
     switch_mutex_init(&globals.mutex_controls_profiles, SWITCH_MUTEX_NESTED, pool);
 
     globals.dm_node_id = rand();
-    globals.fl_simple_slave_mode = false; /* temporary */
     globals.fl_dm_enabled = false;
     globals.fl_dm_auth_enabled = true;
     globals.fl_dm_encrypt_payload = true;
-    globals.fl_simple_slave_mode = false;
     globals.listener_group_capacity = 250;
     globals.audio_cache_size = 5;
     globals.local_queue_size = 16;
@@ -2120,8 +2119,6 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
 
             if(!strcasecmp(var, "listener-group-capacity")) {
                 globals.listener_group_capacity = atoi(val);
-            } else if(!strcasecmp(var, "simple-slave-mode")) {
-                globals.fl_simple_slave_mode = (strcasecmp(val, "true") == 0 ? true : false);
             }
         }
     }
@@ -2255,10 +2252,12 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             conf_profile->audio_transcode_enabled = true;
             conf_profile->video_transcode_enabled = true;
             conf_profile->pin_auth_enabled = false;
+            conf_profile->alone_sound_enabled = true;
             conf_profile->vad_enabled = false;
             conf_profile->cng_enabled = false;
             conf_profile->agc_enabled = false;
             conf_profile->allow_video = false;
+            conf_profile->channels = 1;
             conf_profile->ptime = 20;
             conf_profile->samplerate = 8000;
             conf_profile->conf_idle_max = 0;
@@ -2276,12 +2275,16 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                     conf_profile->video_transcode_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "allow-video")) {
                     conf_profile->allow_video = (strcasecmp(val, "true") == 0 ? true : false);
+                } else if(!strcasecmp(var, "alone-sound-enable")) {
+                    conf_profile->alone_sound_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "conference-idle-time-max")) {
                     conf_profile->conf_idle_max = atoi(val);
                 } else if(!strcasecmp(var, "group-idle-time-max")) {
                     conf_profile->group_idle_max = atoi(val);
                 } else if(!strcasecmp(var, "samplerate")) {
                     conf_profile->samplerate = atoi(val);
+                } else if(!strcasecmp(var, "channels")) {
+                    conf_profile->channels = atoi(val);
                 } else if(!strcasecmp(var, "ptime")) {
                     conf_profile->ptime = atoi(val);
                 } else if(!strcasecmp(var, "admin-controls")) {
@@ -2358,6 +2361,9 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             if(conf_profile->samplerate <= 0) {
                 conf_profile->samplerate = 8000;
             }
+            if(conf_profile->channels <= 0) {
+                conf_profile->channels = 1;
+            }
             if(conf_profile->ptime <= 0) {
                 conf_profile->ptime = 20;
             }
@@ -2377,7 +2383,6 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                     conf_profile->sound_prefix_path = switch_core_strdup(pool, val);
                 }
             }
-
             /* put to map */
             switch_core_hash_insert(globals.conferences_profiles_hash, conf_profile->name, conf_profile);
         }

@@ -12,6 +12,7 @@ typedef struct {
     char        *path;
     void        *dtmf_buf;
     uint32_t    dtmf_buf_len;
+    uint32_t    leadin;
 } member_pb_thread_params_t;
 
 switch_status_t member_playback(member_t *member, char *path, uint8_t async, void *dtmf_buf, uint32_t dtmf_buf_len);
@@ -113,6 +114,12 @@ switch_status_t member_playback(member_t *member, char *path, uint8_t async, voi
         member_flag_set(member, MF_PLAYBACK, true);
         memset(member->playback_handle, 0, sizeof(switch_file_handle_t));
         switch_mutex_unlock(member->mutex_playback);
+
+        for(int x = 0; x < 10; x++) {
+            switch_frame_t *read_frame;
+            status = switch_core_session_read_frame(member->session, &read_frame, SWITCH_IO_FLAG_NONE, 0);
+            if (!SWITCH_READ_ACCEPTABLE(status)) { break; }
+        }
 
         /* playback */
         if(conference_sem_take(conference)) {

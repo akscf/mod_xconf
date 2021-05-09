@@ -24,6 +24,7 @@
 #define PIN_CODE_BUFFER_SIZE                    PIN_CODE_MAX_LEN + 1
 #define MEMBER_AUTH_ATTEMPTS                    3
 #define MEMBER_MOH_CHECK_INTERVAL               5   // sec
+#define CONF_DEFAULT_LEADIN                     20
 
 #define DM_PAYLOAD_AUDIO                        0xA0
 #define DM_PAYLOAD_VIDEO                        0xA1
@@ -50,6 +51,7 @@
 #define CF_USE_AGC                              0x04
 #define CF_USE_AUTH                             0x05
 #define CF_ALLOW_VIDEO                          0x06
+#define CF_ALONE_SOUND                          0x07
 #define CF_PLAYBACK                             0x1F
 
 #define MF_VAD                                  0x00
@@ -193,6 +195,7 @@ typedef struct {
     uint32_t                agc_margin;             //
     uint32_t                agc_change_factor;      //
     uint32_t                samplerate;             //
+    uint32_t                channels;               //
     uint32_t                ptime;                  //
     uint32_t                id;                     //
     char                    *name;                  //
@@ -267,6 +270,7 @@ typedef struct {
     char                    *tts_voice;
     //
     uint32_t                samplerate;
+    uint32_t                channels;
     uint32_t                ptime;
     uint32_t                conf_idle_max;          // seconds
     uint32_t                group_idle_max;         // seconds
@@ -279,6 +283,7 @@ typedef struct {
     uint8_t                 audio_transcode_enabled;
     uint8_t                 video_transcode_enabled;
     uint8_t                 allow_video;
+    uint8_t                 alone_sound_enabled;
 } conference_profile_t;
 
 typedef struct {

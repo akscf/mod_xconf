@@ -36,6 +36,7 @@
         <profile name="default">
             <param name="ptime" value="20"/>
             <param name="samplerate" value="8000"/>
+            <param name="channels" value="1"/>
             <param name="conference-idle-time-max" value="0"/>
             <param name="group-idle-time-max" value="0"/>
             <param name="audio-transcode-enable" value="true"/>
@@ -49,6 +50,7 @@
             <param name="agc-data" value="0:0:3:20"/>
             <param name="admin-controls" value="default"/>
             <param name="user-controls" value="default"/>
+            <param name="alone-sound-enable" value="true"/>
 
             <param name="pin-auth-enable" value="false"/>
             <param name="admin-pin-code" value="123"/>

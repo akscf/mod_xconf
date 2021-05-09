@@ -161,6 +161,8 @@ switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, 
         conference_flag_set(conference, CF_AUDIO_TRANSCODE, fl_op);
     } else if(strcasecmp(fl_name, "trans-video") == 0) {
         conference_flag_set(conference, CF_VIDEO_TRANSCODE, fl_op);
+    } else if(strcasecmp(fl_name, "asnd") == 0) {
+        conference_flag_set(conference, CF_ALONE_SOUND, fl_op);
     } else if(strcasecmp(fl_name, "video") == 0) {
         conference_flag_set(conference, CF_ALLOW_VIDEO, fl_op);
     } else if(strcasecmp(fl_name, "vad") == 0) {
@@ -207,7 +209,7 @@ switch_status_t conference_parse_agc_data(conference_t *conference, const char *
 void conference_dump_status(conference_t *conference, switch_stream_handle_t *stream) {
     stream->write_function(stream, "Node id..................: 0x%X\n", globals.dm_node_id);
     stream->write_function(stream, "Conference id............: 0x%X\n", conference->id);
-    stream->write_function(stream, "Media....................: %iHz/%i ms\n", conference->samplerate, conference->ptime);
+    stream->write_function(stream, "Media....................: %iHz/%i/%i ms\n", conference->samplerate, conference->channels, conference->ptime);
     stream->write_function(stream, "Members (local/total)....: %i/%i\n", conference->members_local, conference->members_total);
     stream->write_function(stream, "Speakers (local/total)...: %i/%i\n", conference->speakers_local, conference->speakers_total);
     stream->write_function(stream, "Sounds path..............: %s\n", conference->sound_prefix_path);
@@ -226,6 +228,7 @@ void conference_dump_status(conference_t *conference, switch_stream_handle_t *st
     stream->write_function(stream, "  - audio trancode.......: %s\n", conference_flag_test(conference, CF_AUDIO_TRANSCODE) ? "on" : "off");
     stream->write_function(stream, "  - video trancode.......: %s\n", conference_flag_test(conference, CF_VIDEO_TRANSCODE) ? "on" : "off");
     stream->write_function(stream, "  - allow video..........: %s\n", conference_flag_test(conference, CF_ALLOW_VIDEO) ? "on" : "off");
+    stream->write_function(stream, "  - alone sound..........: %s\n", conference_flag_test(conference, CF_ALONE_SOUND) ? "on" : "off");
     stream->write_function(stream, "  - vad..................: %s\n", conference_flag_test(conference, CF_USE_VAD) ? "on" : "off");
     stream->write_function(stream, "  - cng..................: %s\n", conference_flag_test(conference, CF_USE_CNG) ? "on" : "off");
     stream->write_function(stream, "  - agc..................: %s\n", conference_flag_test(conference, CF_USE_AGC) ? "on" : "off");
