@@ -8,6 +8,6 @@
  - data exchange (with encryption) using multicast or point-to-point communication
  - truncated redundant transcoding (by reuse encoding results for the similar listeners)
  - fast lockings and maximum parallel processing
- - managing conferences by DTMF (separate profiles for admins and regular users)
+ - managing conferences by DTMF (separated profiles for admins and regular users)
  - *vad, *agc, cng (* - in testing mode)
 
