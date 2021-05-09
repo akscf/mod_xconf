@@ -3,6 +3,7 @@
  * https://akscf.me/
  **/
 #include "mod_xconf.h"
+extern inline void member_flag_set(member_t *member, int flag, int value);
 
 //---------------------------------------------------------------------------------------------------------------------------------------------------
 switch_status_t member_cmd_hangup(void *conference_ref, void *member_ref, void *action_ref) {
