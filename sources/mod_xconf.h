@@ -358,22 +358,9 @@ controls_profile_t *controls_profile_lookup(char *name);
 controls_profile_action_t *controls_profile_get_action(controls_profile_t *profile, char *digits);
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
-inline int conference_flag_test(conference_t *confrence, int flag) {
-    switch_assert(confrence);
-    return BIT_CHECK(confrence->flags, flag);
-}
+int conference_flag_test(conference_t *confrence, int flag);
+void conference_flag_set(conference_t *confrence, int flag, int val);
 
-inline void conference_flag_set(conference_t *confrence, int flag, int val) {
-    switch_assert(confrence);
-
-    switch_mutex_lock(confrence->mutex_flags);
-    if(val) {
-        BIT_SET(confrence->flags, flag);
-    } else {
-        BIT_CLEAR(confrence->flags, flag);
-    }
-    switch_mutex_unlock(confrence->mutex_flags);
-}
 conference_profile_t *conference_profile_lookup(char *name);
 conference_t *conference_lookup_by_name(char *name);
 conference_t *conference_lookup_by_id(uint32_t id);
@@ -386,30 +373,11 @@ switch_status_t conference_parse_agc_data(conference_t *conference, const char *
 void conference_dump_status(conference_t *conference, switch_stream_handle_t *stream);
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
-inline int member_flag_test(member_t *member, int flag) {
-    switch_assert(member);
-    return BIT_CHECK(member->flags, flag);
-}
-
-inline void member_flag_set(member_t *member, int flag, int value) {
-    switch_assert(member);
-    switch_mutex_lock(member->mutex_flags);
-    if(value) {
-        BIT_SET(member->flags, flag);
-    } else {
-        BIT_CLEAR(member->flags, flag);
-    }
-    switch_mutex_unlock(member->mutex_flags);
-}
-inline int member_can_hear(member_t *member) {
-    return (member->fl_ready && !member_flag_test(member, MF_DEAF) && !member_flag_test(member, MF_PLAYBACK) && member_flag_test(member, MF_AUTHORIZED));
-}
-inline int member_can_hear_cn(conference_t *conference, member_t *member) {
-    return (conference_flag_test(conference, CF_USE_CNG) && member_flag_test(member, MF_CNG) && !member_flag_test(member, MF_PLAYBACK));
-}
-inline int member_can_speak(member_t *member) {
-    return (member->fl_ready && !member_flag_test(member, MF_MUTED) && member_flag_test(member, MF_AUTHORIZED));
-}
+int member_flag_test(member_t *member, int flag);
+void member_flag_set(member_t *member, int flag, int value);
+int member_can_hear(member_t *member);
+int member_can_hear_cn(conference_t *conference, member_t *member);
+int member_can_speak(member_t *member);
 
 uint32_t group_sem_take(member_group_t *group);
 void group_sem_release(member_group_t *group);
@@ -421,18 +389,8 @@ switch_status_t member_generate_comfort_noises(conference_t *conference, member_
 void member_dump_status(member_t *member, switch_stream_handle_t *stream);
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
-inline int dm_packet_flag_test(dm_packet_hdr_t *packet, int flag) {
-    switch_assert(packet);
-    return BIT_CHECK(packet->packet_flags, flag);
-}
-inline void dm_packet_flag_set(dm_packet_hdr_t *packet, int flag, int val) {
-    switch_assert(packet);
-    if(val) {
-        BIT_SET(packet->packet_flags, flag);
-    } else {
-        BIT_CLEAR(packet->packet_flags, flag);
-    }
-}
+int dm_packet_flag_test(dm_packet_hdr_t *packet, int flag);
+void dm_packet_flag_set(dm_packet_hdr_t *packet, int flag, int val);
 uint32_t dm_server_clean_nodes_status_cache(switch_inthash_t *nodes_map, uint8_t flush_all);
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
