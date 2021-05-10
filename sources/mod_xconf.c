@@ -648,7 +648,8 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
         }
         switch_yield(10000);
     }
-out:
+
+    /* finish the conference */
     conference->fl_ready = false;
     conference->fl_destroyed = true;
 
@@ -1195,7 +1196,9 @@ static void event_handler_shutdown(switch_event_t *event) {
  "<confname> member <uuid> flags [+-][speaker|admin|auth|mute|deaf|vad|agc|cng]\n"
 
 SWITCH_STANDARD_API(xconf_cmd_function) {
-   char *mycmd = NULL, *argv[10] = { 0 };
+    char *mycmd = NULL, *argv[10] = { 0 };
+    char *conf_name = NULL, *conf_cmd = NULL, *what_name = NULL;
+    conference_t *conference = NULL;
     int argc = 0;
 
     if (!zstr(cmd)) {
@@ -1222,7 +1225,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                 const void *hkey = NULL; void *hval = NULL;
 
                 switch_core_hash_this(hidx, &hkey, NULL, &hval);
-                conference_t *conference = (conference_t *)hval;
+                *conference = (conference_t *)hval;
 
                 if(conference_sem_take(conference)) {
                     stream->write_function(stream, "%s [0x%X / %iHz / %i / %ims] (local-members: %i, local-speakes: %i, total-members: %i, total-speakes: %i, type: %s)\n",
@@ -1247,19 +1250,20 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
     }
 
     /* conference commands */
-    char *conf_name = (argc >= 1 ? argv[0] : NULL);
-    char *conf_cmd =  (argc >= 2 ? argv[1] : NULL);
-    char *what_name = (argc >= 3 ? argv[2] : NULL);
+    conf_name = (argc >= 1 ? argv[0] : NULL);
+    conf_cmd =  (argc >= 2 ? argv[1] : NULL);
+    what_name = (argc >= 3 ? argv[2] : NULL);
 
     if(!conf_name || !conf_cmd) {
         goto usage;
     }
 
-    conference_t *conference = conference_lookup_by_name(conf_name);
+    conference = conference_lookup_by_name(conf_name);
     if(!conference || !conference->fl_ready) {
         stream->write_function(stream, "-ERR: conference '%s' not exists\n", conf_name);
         goto out;
     }
+
     /* conference sub-command: show */
     if(strcasecmp(conf_cmd, "show") == 0) {
         if(!what_name) { goto usage; }
@@ -2479,8 +2483,10 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_xconf_shutdown) {
     /* conferences */
     switch_mutex_lock(globals.mutex_conferences);
     for(hidx = switch_core_hash_first_iter(globals.conferences_hash, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
+        conference_t *conf = NULL;
+
         switch_core_hash_this(hidx, NULL, NULL, &hval);
-        conference_t *conf = (conference_t *) hval;
+        conf = (conference_t *) hval;
 
         if(conference_sem_take(conf)) {
             conf->fl_do_destroy = true;
@@ -2494,8 +2500,10 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_xconf_shutdown) {
     /* controls */
     switch_mutex_lock(globals.mutex_controls_profiles);
     for(hidx = switch_core_hash_first_iter(globals.controls_profiles_hash, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
+        controls_profile_t *profile = NULL;
+
         switch_core_hash_this(hidx, NULL, NULL, &hval);
-        controls_profile_t *profile = (controls_profile_t *) hval;
+        profile = (controls_profile_t *) hval;
 
         if(!profile->fl_destroyed) {
             switch_core_hash_delete(globals.controls_profiles_hash, profile->name);
