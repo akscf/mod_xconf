@@ -351,8 +351,6 @@ out:
 static void *SWITCH_THREAD_FUNC conference_audio_produce_thread(switch_thread_t *thread, void *obj) {
     volatile conference_t *_ref = (conference_t *) obj;
     conference_t *conference = (conference_t *) _ref;
-    switch_status_t status;
-    switch_timer_t timer = { 0 };
     switch_hash_index_t *hidx = NULL;
     void *pop = NULL;
 
@@ -530,7 +528,6 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
                                         if(switch_core_codec_encode(member->write_codec, NULL, atbuf->data, atbuf->data_len, atbuf->samplerate, enc_buffer, &enc_buffer_len, &enc_smprt, &flags) == SWITCH_STATUS_SUCCESS) {
                                             if(audio_cache_size && cur_members_count > 1) {
                                                 audio_cache_t *ex_cache = NULL;
-                                                uint32_t min_ucnt = 0;
 
                                                 for(int i = 0; i < globals.audio_cache_size; i++) {
                                                     audio_cache_t *cache = (audio_cache_t *)(audio_cache + (i * sizeof(audio_cache_t)));
@@ -963,7 +960,6 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
     switch_byte_t *dm_auth_buffer = NULL;  /* keeps salt + secret */
     switch_byte_t *paylod_data_ptr = NULL;
     switch_inthash_t *nodes_stats_map = NULL;
-    switch_hash_index_t *hidx = NULL;
     cipher_ctx_t *cipher_ctx = NULL;
     char md5_hash[SWITCH_MD5_DIGEST_STRING_SIZE] = { 0 };
     dm_packet_hdr_t *phdr_ptr = NULL;
@@ -1050,6 +1046,12 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
                 }
             }
 
+            /* flush nodes state cache */
+            if(globals.fl_dm_do_flush_status_cache) {
+                dm_server_clean_nodes_status_cache(nodes_stats_map, true);
+                globals.fl_dm_do_flush_status_cache = false;
+                nodes_count = 0;
+            }
             /* drop outdated packets */
             node_stat = switch_core_inthash_find(nodes_stats_map, phdr_ptr->node_id);
             if(!node_stat) {
@@ -1123,18 +1125,8 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
 
 sleep:
         if(nodes_count && check_seq_timer < switch_epoch_time_now(NULL)) {
-            const void *hvar = NULL; void *hval = NULL;
-            time_t ts = switch_epoch_time_now(NULL);
-
-            for (hidx = switch_core_hash_first_iter(nodes_stats_map, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
-                switch_core_hash_this(hidx, &hvar, NULL, &hval);
-                node_stat = (node_stat_t *)hval;
-                if(node_stat && node_stat->expiry < ts) {
-                    switch_core_inthash_delete(nodes_stats_map, node_stat->node);
-                    switch_safe_free(node_stat);
-                }
-            }
-
+            nodes_count -= dm_server_clean_nodes_status_cache(nodes_stats_map, false);
+            if(nodes_count > DM_MAX_NODES) { nodes_count = 0; } /* overload */
             check_seq_timer = (switch_epoch_time_now(NULL) + DM_NODE_CHECK_INTERVAL);
         }
 
@@ -1155,6 +1147,7 @@ out:
     }
 
     if(nodes_stats_map) {
+        switch_hash_index_t *hidx = NULL;
         const void *hvar = NULL; void *hval = NULL;
         for (hidx = switch_core_hash_first_iter(nodes_stats_map, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
             switch_core_hash_this(hidx, &hvar, NULL, &hval);
@@ -1190,6 +1183,7 @@ static void event_handler_shutdown(switch_event_t *event) {
 
 #define CMD_SYNTAX \
  "list - show all active conferences\n" \
+ "dm-flush-status-cache - flush server status cache\n" \
  "<confname> term - terminate the conferece\n" \
  "<confname> show [status|groups|members]\n" \
  "<confname> playback [stop] filename [async]\n" \
@@ -1242,6 +1236,11 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
             switch_mutex_unlock(globals.mutex_conferences);
 
             stream->write_function(stream, "total: %i\n", total);
+            goto out;
+        }
+        if(strcasecmp(argv[0], "dm-flush-status-cache") == 0) {
+            globals.fl_dm_do_flush_status_cache = true;
+            stream->write_function(stream, "+OK\n");
             goto out;
         }
         goto usage;

@@ -39,7 +39,7 @@
 #define DM_PAYLOAD_COMMAND                      0xA3
 #define DM_PAYLOAD_MAGIC                        0xFADEDAF0
 #define DM_MAX_NODES                            32
-#define DM_NODE_LIFETIME                        60  // sec
+#define DM_NODE_LIFETIME                        15  // sec
 #define DM_NODE_CHECK_INTERVAL                  (DM_NODE_LIFETIME * 2)
 #define DM_SHARED_SECRET_MAX_LEN                32
 #define DM_IO_BUFFER_SIZE                       4096
@@ -48,6 +48,8 @@
 #define DM_MODE_P2P                             2   // point-to-point
 #define DM_SALT_SIZE                            16
 #define DM_SALT_LIFE_TIME                       900 // sec
+
+#define DMF_FLUSH_CACHE                         0x00
 
 #define DMPF_ENCRYPTED                          0x00
 
@@ -102,6 +104,7 @@ typedef struct {
     uint8_t                 fl_dm_enabled;
     uint8_t                 fl_dm_auth_enabled;
     uint8_t                 fl_dm_encrypt_payload;
+    uint8_t                 fl_dm_do_flush_status_cache;
 } globals_t;
 
 typedef struct {
@@ -430,6 +433,7 @@ inline void dm_packet_flag_set(dm_packet_hdr_t *packet, int flag, int val) {
         BIT_CLEAR(packet->packet_flags, flag);
     }
 }
+uint32_t dm_server_clean_nodes_status_cache(switch_inthash_t *nodes_map, uint8_t flush_all);
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 switch_status_t audio_tranfser_buffer_alloc(audio_tranfser_buffer_t **out, switch_byte_t *data, uint32_t data_len);

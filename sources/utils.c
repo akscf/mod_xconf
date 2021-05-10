@@ -411,6 +411,41 @@ void audio_tranfser_buffer_free(audio_tranfser_buffer_t *buf) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
+uint32_t dm_server_clean_nodes_status_cache(switch_inthash_t *nodes_map, uint8_t flush_all) {
+    switch_hash_index_t *hidx = NULL;
+    node_stat_t *node_stat = NULL;
+    uint32_t del_count = 0;
+    const void *hvar = NULL;
+    void *hval = NULL;
+
+    switch_assert(nodes_map);
+
+    if(flush_all) {
+        for (hidx = switch_core_hash_first_iter(nodes_map, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
+            switch_core_hash_this(hidx, &hvar, NULL, &hval);
+            node_stat = (node_stat_t *) hval;
+            if(node_stat) {
+                switch_core_inthash_delete(nodes_map, node_stat->node);
+                switch_safe_free(node_stat);
+                del_count++;
+            }
+        }
+    } else {
+        time_t ts = switch_epoch_time_now(NULL);
+        for (hidx = switch_core_hash_first_iter(nodes_map, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
+            switch_core_hash_this(hidx, &hvar, NULL, &hval);
+            node_stat = (node_stat_t *) hval;
+            if(node_stat && node_stat->expiry < ts) {
+                switch_core_inthash_delete(nodes_map, node_stat->node);
+                switch_safe_free(node_stat);
+                del_count++;
+            }
+        }
+    }
+    return del_count;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
 void flush_audio_queue(switch_queue_t *queue) {
     void *data = NULL;
 
