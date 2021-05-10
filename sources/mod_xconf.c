@@ -1225,7 +1225,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
                 const void *hkey = NULL; void *hval = NULL;
 
                 switch_core_hash_this(hidx, &hkey, NULL, &hval);
-                *conference = (conference_t *)hval;
+                conference = (conference_t *)hval;
 
                 if(conference_sem_take(conference)) {
                     stream->write_function(stream, "%s [0x%X / %iHz / %i / %ims] (local-members: %i, local-speakes: %i, total-members: %i, total-speakes: %i, type: %s)\n",
@@ -2387,6 +2387,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
     }
 
     if(globals.fl_dm_enabled) {
+        char *sys_uuid = NULL;
+
         if(!strcasecmp(globals.dm_mode_name, "multicast")) {
             globals.dm_mode = DM_MODE_MILTICAST;
             globals.fl_dm_enabled = true;
@@ -2426,8 +2428,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             }
         }
 
-        char *tmp = switch_core_get_variable("core_uuid");
-        if(tmp) { globals.dm_node_id = make_id(tmp, strlen(tmp)); }
+        sys_uuid = switch_core_get_variable("core_uuid");
+        if(sys_uuid) { globals.dm_node_id = make_id(sys_uuid, strlen(sys_uuid)); }
 
         switch_queue_create(&globals.dm_audio_queue_out, globals.dm_queue_size, pool);
         switch_queue_create(&globals.dm_command_queue_out, globals.dm_queue_size, pool);
