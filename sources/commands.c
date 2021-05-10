@@ -3,13 +3,10 @@
  * https://akscf.me/
  **/
 #include "mod_xconf.h"
-extern inline void member_flag_set(member_t *member, int flag, int value);
-extern inline int member_flag_test(member_t *member, int flag);
-extern inline void conference_flag_set(conference_t *confrence, int flag, int val);
-extern inline int conference_flag_test(conference_t *confrence, int flag);
+extern globals_t globals;
 
 //---------------------------------------------------------------------------------------------------------------------------------------------------
-switch_status_t member_cmd_hangup(void *conference_ref, void *member_ref, void *action_ref) {
+static switch_status_t member_cmd_hangup(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -19,7 +16,7 @@ switch_status_t member_cmd_hangup(void *conference_ref, void *member_ref, void *
     return SWITCH_STATUS_SUCCESS;
 }
 
-switch_status_t member_cmd_deaf(void *conference_ref, void *member_ref, void *action_ref) {
+static switch_status_t member_cmd_deaf(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -29,7 +26,7 @@ switch_status_t member_cmd_deaf(void *conference_ref, void *member_ref, void *ac
     return SWITCH_STATUS_SUCCESS;
 }
 
-switch_status_t member_cmd_mute(void *conference_ref, void *member_ref, void *action_ref) {
+static switch_status_t member_cmd_mute(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -39,7 +36,7 @@ switch_status_t member_cmd_mute(void *conference_ref, void *member_ref, void *ac
     return SWITCH_STATUS_SUCCESS;
 }
 
-switch_status_t member_cmd_deaf_mute(void *conference_ref, void *member_ref, void *action_ref) {
+static switch_status_t member_cmd_deaf_mute(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -50,7 +47,7 @@ switch_status_t member_cmd_deaf_mute(void *conference_ref, void *member_ref, voi
     return SWITCH_STATUS_SUCCESS;
 }
 
-switch_status_t member_cmd_vad_level_adj(void *conference_ref, void *member_ref, void *action_ref) {
+static switch_status_t member_cmd_vad_level_adj(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -72,7 +69,7 @@ switch_status_t member_cmd_vad_level_adj(void *conference_ref, void *member_ref,
     return SWITCH_STATUS_SUCCESS;
 }
 
-switch_status_t member_cmd_agc_level_adj(void *conference_ref, void *member_ref, void *action_ref) {
+static switch_status_t member_cmd_agc_level_adj(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -101,7 +98,7 @@ switch_status_t member_cmd_agc_level_adj(void *conference_ref, void *member_ref,
     return SWITCH_STATUS_SUCCESS;
 }
 
-switch_status_t member_cmd_vol_talk_adj(void *conference_ref, void *member_ref, void *action_ref) {
+static switch_status_t member_cmd_vol_talk_adj(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -124,7 +121,7 @@ switch_status_t member_cmd_vol_talk_adj(void *conference_ref, void *member_ref, 
     return SWITCH_STATUS_SUCCESS;
 }
 
-switch_status_t member_cmd_vol_listen_adj(void *conference_ref, void *member_ref, void *action_ref) {
+static switch_status_t member_cmd_vol_listen_adj(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -147,7 +144,7 @@ switch_status_t member_cmd_vol_listen_adj(void *conference_ref, void *member_ref
     return SWITCH_STATUS_SUCCESS;
 }
 
-switch_status_t member_cmd_playback(void *conference_ref, void *member_ref, void *action_ref) {
+static switch_status_t member_cmd_playback(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -163,7 +160,7 @@ switch_status_t member_cmd_playback(void *conference_ref, void *member_ref, void
     return SWITCH_STATUS_SUCCESS;
 }
 
-switch_status_t member_cmd_swith_to_admin(void *conference_ref, void *member_ref, void *action_ref) {
+static switch_status_t member_cmd_swith_to_admin(void *conference_ref, void *member_ref, void *action_ref) {
     switch_status_t status = SWITCH_STATUS_FALSE;
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
@@ -209,7 +206,7 @@ switch_status_t member_cmd_swith_to_admin(void *conference_ref, void *member_ref
     return SWITCH_STATUS_SUCCESS;
 }
 
-switch_status_t member_cmd_call_api(void *conference_ref, void *member_ref, void *action_ref) {
+static switch_status_t member_cmd_call_api(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;
@@ -241,7 +238,7 @@ switch_status_t member_cmd_call_api(void *conference_ref, void *member_ref, void
     return status;
 }
 
-switch_status_t member_cmd_exec_app(void *conference_ref, void *member_ref, void *action_ref) {
+static switch_status_t member_cmd_exec_app(void *conference_ref, void *member_ref, void *action_ref) {
     controls_profile_action_t *action = (controls_profile_action_t *) action_ref;
     conference_t *conference = (conference_t *) conference_ref;
     member_t *member = (member_t *) member_ref;

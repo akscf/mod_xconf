@@ -3,10 +3,6 @@
  * https://akscf.me/
  **/
 #include "mod_xconf.h"
-#include "cipher.h"
-#include "utils.h"
-#include "playback.h"
-#include "commands.h"
 
 globals_t globals;
 
@@ -22,20 +18,11 @@ static void *SWITCH_THREAD_FUNC dm_client_thread(switch_thread_t *thread, void *
 static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *obj);
 
 //---------------------------------------------------------------------------------------------------------------------------------------------------
-void launch_thread(switch_memory_pool_t *pool, switch_thread_start_t fun, void *data) {
-    switch_threadattr_t *attr = NULL;
-    switch_thread_t *thread = NULL;
-
-    switch_threadattr_create(&attr, pool);
-    switch_threadattr_detach_set(attr, 1);
-    switch_threadattr_stacksize_set(attr, SWITCH_THREAD_STACKSIZE);
-    switch_thread_create(&thread, attr, fun, data, pool);
-
-    switch_mutex_lock(globals.mutex);
-    globals.active_threads++;
-    switch_mutex_unlock(globals.mutex);
-
-    return;
+static inline void mix_i16(int16_t *dst, int16_t *src, uint32_t len) {
+    uint32_t i = 0;
+    for(i = 0; i < len; i++) {
+        dst[i] += src[i];
+    }
 }
 
 static switch_status_t listener_join_to_group(member_group_t **group, conference_t *conference, member_t *member) {

@@ -5,21 +5,24 @@
 #include "mod_xconf.h"
 extern globals_t globals;
 
-#define MIN(a,b) (((a)<(b))?(a):(b))
-#define MAX(a,b) (((a)>(b))?(a):(b))
-#define BIT_SET(a,b)   ((a) |= (1UL<<(b)))
-#define BIT_CLEAR(a,b) ((a) &= ~(1UL<<(b)))
-#define BIT_CHECK(a,b) (!!((a) & (1UL<<(b))))
-
 uint32_t make_id(char *name, uint32_t len) {
     return switch_crc32_8bytes((char *)name, len);
 }
 
-inline void mix_i16(int16_t *dst, int16_t *src, uint32_t len) {
-    uint32_t i = 0;
-    for(i = 0; i < len; i++) {
-        dst[i] += src[i];
-    }
+void launch_thread(switch_memory_pool_t *pool, switch_thread_start_t fun, void *data) {
+    switch_threadattr_t *attr = NULL;
+    switch_thread_t *thread = NULL;
+
+    switch_threadattr_create(&attr, pool);
+    switch_threadattr_detach_set(attr, 1);
+    switch_threadattr_stacksize_set(attr, SWITCH_THREAD_STACKSIZE);
+    switch_thread_create(&thread, attr, fun, data, pool);
+
+    switch_mutex_lock(globals.mutex);
+    globals.active_threads++;
+    switch_mutex_unlock(globals.mutex);
+
+    return;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -107,24 +110,6 @@ uint32_t conference_assign_group_id(conference_t *conference) {
     switch_mutex_unlock(conference->mutex_sequence);
 
     return id;
-}
-
-/* without lock */
-inline int conference_flag_test(conference_t *confrence, int flag) {
-    switch_assert(confrence);
-    return BIT_CHECK(confrence->flags, flag);
-}
-
-inline void conference_flag_set(conference_t *confrence, int flag, int val) {
-    switch_assert(confrence);
-
-    switch_mutex_lock(confrence->mutex_flags);
-    if(val) {
-        BIT_SET(confrence->flags, flag);
-    } else {
-        BIT_CLEAR(confrence->flags, flag);
-    }
-    switch_mutex_unlock(confrence->mutex_flags);
 }
 
 uint32_t conference_sem_take(conference_t *conference) {
@@ -285,24 +270,6 @@ void member_sem_release(member_t *member) {
     switch_mutex_unlock(member->mutex);
 }
 
-/* without lock */
-inline int member_flag_test(member_t *member, int flag) {
-    switch_assert(member);
-    return BIT_CHECK(member->flags, flag);
-}
-
-inline void member_flag_set(member_t *member, int flag, int value) {
-    switch_assert(member);
-
-    switch_mutex_lock(member->mutex_flags);
-    if(value) {
-        BIT_SET(member->flags, flag);
-    } else {
-        BIT_CLEAR(member->flags, flag);
-    }
-    switch_mutex_unlock(member->mutex_flags);
-}
-
 switch_status_t member_parse_flags(member_t *member, char *fl_name, uint8_t fl_op) {
     switch_status_t status = SWITCH_STATUS_SUCCESS;
 
@@ -395,33 +362,6 @@ void member_dump_status(member_t *member, switch_stream_handle_t *stream) {
     stream->write_function(stream, "  - vad..............: %s\n", member_flag_test(member, MF_VAD) ? "on" : "off");
     stream->write_function(stream, "  - agc..............: %s\n", member_flag_test(member, MF_AGC) ? "on" : "off");
     stream->write_function(stream, "  - cng..............: %s\n", member_flag_test(member, MF_CNG) ? "on" : "off");
-}
-
-/* conditions helper */
-inline int member_can_hear(member_t *member) {
-    return (member->fl_ready && !member_flag_test(member, MF_DEAF) && !member_flag_test(member, MF_PLAYBACK) && member_flag_test(member, MF_AUTHORIZED));
-}
-inline int member_can_hear_cn(conference_t *conference, member_t *member) {
-    return (conference_flag_test(conference, CF_USE_CNG) && member_flag_test(member, MF_CNG) && !member_flag_test(member, MF_PLAYBACK));
-}
-inline int member_can_speak(member_t *member) {
-    return (member->fl_ready && !member_flag_test(member, MF_MUTED) && member_flag_test(member, MF_AUTHORIZED));
-}
-
-// ---------------------------------------------------------------------------------------------------------------------------------------------------
-inline int dm_packet_flag_test(dm_packet_hdr_t *packet, int flag) {
-    switch_assert(packet);
-    return BIT_CHECK(packet->packet_flags, flag);
-}
-
-inline void dm_packet_flag_set(dm_packet_hdr_t *packet, int flag, int val) {
-    switch_assert(packet);
-
-    if(val) {
-        BIT_SET(packet->packet_flags, flag);
-    } else {
-        BIT_CLEAR(packet->packet_flags, flag);
-    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------

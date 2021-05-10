@@ -4,7 +4,6 @@
  **/
 #include "mod_xconf.h"
 extern globals_t globals;
-extern void launch_thread(switch_memory_pool_t *pool, switch_thread_start_t fun, void *data);
 
 //---------------------------------------------------------------------------------------------------------------------------------------------------
 typedef struct {
@@ -14,8 +13,6 @@ typedef struct {
     uint32_t    dtmf_buf_len;
     uint32_t    leadin;
 } member_pb_thread_params_t;
-
-switch_status_t member_playback(member_t *member, char *path, uint8_t async, void *dtmf_buf, uint32_t dtmf_buf_len);
 
 static void *SWITCH_THREAD_FUNC member_playback_async_thread(switch_thread_t *thread, void *obj) {
     volatile member_pb_thread_params_t *_ref = (member_pb_thread_params_t *) obj;
@@ -170,8 +167,6 @@ typedef struct {
     conference_t    *conference;
     char            *path;
 } conference_pb_thread_params_t;
-
-switch_status_t conference_playback(conference_t *conference, char *path, uint8_t async);
 
 static void *SWITCH_THREAD_FUNC conference_playback_async_thread(switch_thread_t *thread, void *obj) {
     volatile conference_pb_thread_params_t *_ref = (conference_pb_thread_params_t *) obj;

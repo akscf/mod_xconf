@@ -2,11 +2,13 @@
  * Copyright (C) AlexandrinKS
  * https://akscf.me/
  **/
-#ifndef XCONF_H
-#define XCONF_H
+#ifndef MOD_XCONF_H
+#define MOD_XCONF_H
 
 #include <switch.h>
 #include <switch_stun.h>
+#include <stdint.h>
+#include "cipher.h"
 
 #ifndef true
 #define true 1
@@ -14,6 +16,12 @@
 #ifndef false
 #define false 0
 #endif
+
+#define MIN(a,b) (((a)<(b))?(a):(b))
+#define MAX(a,b) (((a)>(b))?(a):(b))
+#define BIT_SET(a,b)   ((a) |= (1UL<<(b)))
+#define BIT_CLEAR(a,b) ((a) &= ~(1UL<<(b)))
+#define BIT_CHECK(a,b) (!!((a) & (1UL<<(b))))
 
 #define AUDIO_BUFFER_SIZE                       2048 // SWITCH_RECOMMENDED_BUFFER_SIZE
 #define XCONF_VERSION                           "1.7"
@@ -326,6 +334,112 @@ typedef struct {
     uint16_t                channels;
     uint16_t                data_len;
 } dm_payload_audio_hdr_t;
+
+/* main */
+void launch_thread(switch_memory_pool_t *pool, switch_thread_start_t fun, void *data);
+
+/* commands */
+switch_status_t conf_action_parse(char *action_str, controls_profile_t *profile, controls_profile_action_t *action);
+
+/* playback */
+switch_status_t member_playback_stop(member_t *member);
+switch_status_t member_playback(member_t *member, char *path, uint8_t async, void *dtmf_buf, uint32_t dtmf_buf_len);
+
+switch_status_t conference_playback_stop(conference_t *conference);
+switch_status_t conference_playback(conference_t *conference, char *path, uint8_t async);
+
+/* utils */
+uint32_t make_id(char *name, uint32_t len);
+void launch_thread(switch_memory_pool_t *pool, switch_thread_start_t fun, void *data);
+
+controls_profile_t *controls_profile_lookup(char *name);
+controls_profile_action_t *controls_profile_get_action(controls_profile_t *profile, char *digits);
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+inline int conference_flag_test(conference_t *confrence, int flag) {
+    switch_assert(confrence);
+    return BIT_CHECK(confrence->flags, flag);
+}
+
+inline void conference_flag_set(conference_t *confrence, int flag, int val) {
+    switch_assert(confrence);
+
+    switch_mutex_lock(confrence->mutex_flags);
+    if(val) {
+        BIT_SET(confrence->flags, flag);
+    } else {
+        BIT_CLEAR(confrence->flags, flag);
+    }
+    switch_mutex_unlock(confrence->mutex_flags);
+}
+conference_profile_t *conference_profile_lookup(char *name);
+conference_t *conference_lookup_by_name(char *name);
+conference_t *conference_lookup_by_id(uint32_t id);
+uint32_t conference_assign_member_id(conference_t *conference);
+uint32_t conference_assign_group_id(conference_t *conference);
+uint32_t conference_sem_take(conference_t *conference);
+void conference_sem_release(conference_t *conference);
+switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, uint8_t fl_op);
+switch_status_t conference_parse_agc_data(conference_t *conference, const char *agc_data);
+void conference_dump_status(conference_t *conference, switch_stream_handle_t *stream);
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+inline int member_flag_test(member_t *member, int flag) {
+    switch_assert(member);
+    return BIT_CHECK(member->flags, flag);
+}
+
+inline void member_flag_set(member_t *member, int flag, int value) {
+    switch_assert(member);
+    switch_mutex_lock(member->mutex_flags);
+    if(value) {
+        BIT_SET(member->flags, flag);
+    } else {
+        BIT_CLEAR(member->flags, flag);
+    }
+    switch_mutex_unlock(member->mutex_flags);
+}
+inline int member_can_hear(member_t *member) {
+    return (member->fl_ready && !member_flag_test(member, MF_DEAF) && !member_flag_test(member, MF_PLAYBACK) && member_flag_test(member, MF_AUTHORIZED));
+}
+inline int member_can_hear_cn(conference_t *conference, member_t *member) {
+    return (conference_flag_test(conference, CF_USE_CNG) && member_flag_test(member, MF_CNG) && !member_flag_test(member, MF_PLAYBACK));
+}
+inline int member_can_speak(member_t *member) {
+    return (member->fl_ready && !member_flag_test(member, MF_MUTED) && member_flag_test(member, MF_AUTHORIZED));
+}
+
+uint32_t group_sem_take(member_group_t *group);
+void group_sem_release(member_group_t *group);
+uint32_t member_sem_take(member_t *member);
+void member_sem_release(member_t *member);
+switch_status_t member_parse_flags(member_t *member, char *fl_name, uint8_t fl_op);
+switch_status_t member_parse_agc_data(member_t *member, const char *agc_data);
+switch_status_t member_generate_comfort_noises(conference_t *conference, member_t *member, switch_byte_t *buffer, uint32_t *buffer_size);
+void member_dump_status(member_t *member, switch_stream_handle_t *stream);
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+inline int dm_packet_flag_test(dm_packet_hdr_t *packet, int flag) {
+    switch_assert(packet);
+    return BIT_CHECK(packet->packet_flags, flag);
+}
+inline void dm_packet_flag_set(dm_packet_hdr_t *packet, int flag, int val) {
+    switch_assert(packet);
+    if(val) {
+        BIT_SET(packet->packet_flags, flag);
+    } else {
+        BIT_CLEAR(packet->packet_flags, flag);
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+switch_status_t audio_tranfser_buffer_alloc(audio_tranfser_buffer_t **out, switch_byte_t *data, uint32_t data_len);
+switch_status_t audio_tranfser_buffer_clone(audio_tranfser_buffer_t **dst, audio_tranfser_buffer_t *src);
+void audio_tranfser_buffer_free(audio_tranfser_buffer_t *buf);
+void flush_audio_queue(switch_queue_t *queue);
+void flush_commands_queue(switch_queue_t *queue);
+
+
 
 #endif
 
