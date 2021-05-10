@@ -427,7 +427,7 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
     switch_byte_t *enc_buffer = NULL;
     switch_timer_t timer = { 0 };
     switch_hash_index_t *hidx = NULL;
-    uint32_t dlock_cnt = 0;
+    uint32_t group_dlock_cnt = 0;
     uint32_t group_id = group->id;
     time_t term_time = 0;
     void *pop = NULL;
@@ -591,10 +591,10 @@ out:
 
     while(group->tx_sem > 0) {
         switch_yield(100000);
-        dlock_cnt++;
-        if(dlock_cnt > 100) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "%s: Can't destroy group '%i' (lost '%i' semaphores)\n", conference->name, group_id, conference->tx_sem);
-            dlock_cnt = 0;
+        group_dlock_cnt++;
+        if(group_dlock_cnt > 100) {
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "%s: Group '%i' locked! (lost '%i' semaphores)\n", conference->name, group_id, group->tx_sem);
+            group_dlock_cnt = 0;
         }
     }
 
@@ -625,7 +625,7 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
     const uint32_t conference_id = conference->id;
     char *conference_name = switch_mprintf("%s", conference->name);
     time_t term_time = 0;
-    uint32_t dlock_cnt = 0;
+    uint32_t conf_dlock_cnt = 0;
 
     conference->fl_do_destroy = false;
     conference->fl_ready = true;
@@ -657,10 +657,10 @@ out:
 
     while(conference->tx_sem > 0) {
         switch_yield(100000);
-        dlock_cnt++;
-        if(dlock_cnt > 100) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "%s: Can't destroy conference (lost '%i' semaphores)\n", conference_name, conference->tx_sem);
-            dlock_cnt = 0;
+        conf_dlock_cnt++;
+        if(conf_dlock_cnt > 100) {
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "%s: Conference locked! (lost '%i' semaphores)\n", conference_name, conference->tx_sem);
+            conf_dlock_cnt = 0;
         }
     }
 
@@ -676,7 +676,6 @@ out:
     switch_core_inthash_destroy(&conference->speakers);
 
     switch_core_hash_destroy(&conference->members_idx_hash);
-
     switch_core_destroy_memory_pool(&conference->pool);
 
     switch_mutex_lock(globals.mutex_conferences);
@@ -1516,11 +1515,13 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     char pin_code_buffer[PIN_CODE_BUFFER_SIZE] = { 0 };
     char *conference_name = NULL, *profile_name = NULL;
     uint8_t fl_play_welcome = true, fl_play_alone = true, fl_play_enter_pin = true;
+    uint32_t member_dlock_cnt = 0;
     uint32_t au_buffer_id_local = 0, dtmf_buf_pos = 0;
     uint32_t member_flags_old = 0, cn_buffer_size = 0;
     uint32_t conference_id = 0, pin_code_len = 0;
     uint32_t auth_attempts = MEMBER_AUTH_ATTEMPTS;
     time_t dtmf_timer = 0, moh_check_timer = 0;
+
 
     if (!zstr(data)) {
         mycmd = strdup(data);
@@ -1730,8 +1731,9 @@ SWITCH_STANDARD_APP(xconf_app_api) {
 
     member->fl_ready = true;
 
-    /* take semaphore */
+    /* take semaphore's */
     conference_sem_take(conference);
+    group_sem_take(group);
 
     /* copy conf settings */
     member->user_controls = conference->user_controls;
@@ -1997,7 +1999,7 @@ usage:
 out:
     switch_core_timer_destroy(&timer);
 
-    if(switch_channel_ready(channel)) {
+    if(conference->fl_ready && switch_channel_ready(channel)) {
         if(member_flag_test(member, MF_KICK)) {
             member_playback(member, conference->sound_member_kicked, false, NULL, 0);
         } else {
@@ -2013,7 +2015,12 @@ out:
         switch_mutex_unlock(member->mutex);
 
         while(member->tx_sem > 0) {
-            switch_yield(50000);
+            switch_yield(100000);
+            member_dlock_cnt++;
+            if(member_dlock_cnt > 100) {
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "%s: Member '%s' locked! (lost '%i' semaphores)\n", member->session_id, conference->name, member->tx_sem);
+                member_dlock_cnt = 0;
+            }
         }
 
         if(member_flag_test(member, MF_SPEAKER)) {
@@ -2026,7 +2033,7 @@ out:
             switch_mutex_unlock(conference->mutex);
         }
 
-        if(group) {
+        if(group && group->fl_ready) {
             switch_mutex_lock(group->mutex_members);
             switch_core_inthash_delete(group->members, member->id);
             switch_mutex_unlock(group->mutex_members);
@@ -2036,6 +2043,7 @@ out:
                 group->free++;
             }
             switch_mutex_unlock(group->mutex);
+            group_sem_release(group);
         }
 
         if(member->agc) {
@@ -2047,7 +2055,7 @@ out:
         conference->members_local--;
         switch_mutex_unlock(conference->mutex);
 
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_DEBUG, "member '%s' left '%s'\n", member->session_id, conference->name);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "member '%s' left '%s'\n", member->session_id, conference->name);
 
         /* release semaphore */
         conference_sem_release(conference);

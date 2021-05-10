@@ -7,7 +7,6 @@
 
 #include <switch.h>
 #include <switch_stun.h>
-#include <stdint.h>
 #include "cipher.h"
 
 #ifndef true
