@@ -4,7 +4,9 @@
  **/
 #include "mod_xconf.h"
 extern inline void member_flag_set(member_t *member, int flag, int value);
+extern inline int member_flag_test(member_t *member, int flag);
 extern inline void conference_flag_set(conference_t *confrence, int flag, int val);
+extern inline int conference_flag_test(conference_t *confrence, int flag);
 
 //---------------------------------------------------------------------------------------------------------------------------------------------------
 switch_status_t member_cmd_hangup(void *conference_ref, void *member_ref, void *action_ref) {
