@@ -196,8 +196,8 @@ typedef struct {
     uint32_t                tx_sem;                 //
     uint32_t                groups_seq;             //
     uint32_t                members_seq;            //
-    uint32_t                conf_idle_max;          //
-    uint32_t                group_idle_max;         //
+    uint32_t                conf_term_timer;        // sec
+    uint32_t                group_term_timer;       // sec
     int32_t                 cng_lvl;                // comfort_noise_lvl
     int32_t                 vad_lvl;                //
     int32_t                 agc_lvl;                //
@@ -282,8 +282,8 @@ typedef struct {
     uint32_t                samplerate;
     uint32_t                channels;
     uint32_t                ptime;
-    uint32_t                conf_idle_max;          // seconds
-    uint32_t                group_idle_max;         // seconds
+    uint32_t                conf_term_timer;          // seconds
+    uint32_t                group_term_timer;         // seconds
     int32_t                 vad_level;
     int32_t                 cng_level;
     uint8_t                 vad_enabled;

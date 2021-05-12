@@ -215,8 +215,8 @@ void conference_dump_status(conference_t *conference, switch_stream_handle_t *st
     stream->write_function(stream, "Members (local/total)....: %i/%i\n", conference->members_local, conference->members_total);
     stream->write_function(stream, "Speakers (local/total)...: %i/%i\n", conference->speakers_local, conference->speakers_total);
     stream->write_function(stream, "Sounds path..............: %s\n", conference->sound_prefix_path);
-    stream->write_function(stream, "Conf idle timer..........: %i sec\n", conference->conf_idle_max);
-    stream->write_function(stream, "Group idle timer.........: %i sec\n", conference->group_idle_max);
+    stream->write_function(stream, "Conf term timer..........: %i sec\n", conference->conf_term_timer);
+    stream->write_function(stream, "Group term timer.........: %i sec\n", conference->group_term_timer);
     stream->write_function(stream, "VAD level................: %i\n", conference->vad_lvl);
     stream->write_function(stream, "CNG level................: %i\n", conference->cng_lvl);
     stream->write_function(stream, "AGC settings.............: %i:%i:%i:%i\n", conference->agc_lvl, conference->agc_low_lvl, conference->agc_change_factor, conference->agc_margin);

@@ -427,7 +427,7 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
     switch_hash_index_t *hidx = NULL;
     uint32_t group_dlock_cnt = 0;
     uint32_t group_id = group->id;
-    time_t term_time = 0;
+    time_t term_timer = 0;
     void *pop = NULL;
 
     if(!conference_sem_take(conference)) {
@@ -457,17 +457,17 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
         if(globals.fl_shutdown || conference->fl_do_destroy || !conference->fl_ready) {
             break;
         }
-        if(term_time > 0) {
+        if(term_timer > 0) {
             if(group->free != group->capacity) {
-                term_time = 0;
-            } else if(term_time <= switch_epoch_time_now(NULL)) {
+                term_timer = 0;
+            } else if(term_timer <= switch_epoch_time_now(NULL)) {
                 group->fl_do_destroy = true;
                 break;
             }
         }
         if(group->free == group->capacity) {
-            if(conference->group_idle_max > 0 && term_time == 0) {
-                term_time = (switch_epoch_time_now(NULL) + conference->group_idle_max);
+            if(conference->group_term_timer > 0 && term_timer == 0) {
+                term_timer = (switch_epoch_time_now(NULL) + conference->group_term_timer);
             }
         }
         if(switch_queue_trypop(group->audio_q, &pop) == SWITCH_STATUS_SUCCESS) {
@@ -621,7 +621,7 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
     conference_t *conference = (conference_t *) _ref;
     const uint32_t conference_id = conference->id;
     char *conference_name = switch_mprintf("%s", conference->name);
-    time_t term_time = 0;
+    time_t term_timer = 0;
     uint32_t conf_dlock_cnt = 0;
 
     conference->fl_do_destroy = false;
@@ -632,18 +632,18 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
             break;
         }
 
-        if(term_time > 0) {
+        if(term_timer > 0) {
             if(conference->speakers_local > 0 || conference->members_local > 0) {
-                term_time = 0;
-            } else if(term_time <= switch_epoch_time_now(NULL)) {
+                term_timer = 0;
+            } else if(term_timer <= switch_epoch_time_now(NULL)) {
                 conference->fl_do_destroy = true;
                 break;
             }
         }
 
         if(conference->speakers_local == 0 && conference->members_local == 0) {
-            if(conference->conf_idle_max > 0 && term_time == 0) {
-                term_time = (switch_epoch_time_now(NULL) + conference->conf_idle_max);
+            if(conference->conf_term_timer > 0 && term_timer == 0) {
+                term_timer = (switch_epoch_time_now(NULL) + conference->conf_term_timer);
             }
         }
         switch_yield(10000);
@@ -1185,7 +1185,7 @@ static void event_handler_shutdown(switch_event_t *event) {
 #define CMD_SYNTAX \
  "list - show all active conferences\n" \
  "dm-flush-status-cache - flush server status cache\n" \
- "<confname> term - terminate the conferece\n" \
+ "<confname> term - terminate conferece\n" \
  "<confname> show [status|groups|members]\n" \
  "<confname> playback [stop] filename [async]\n" \
  "<confname> flags [+-][trans-audio|trans-video|video|asnd|vad|cng|agc]\n" \
@@ -1525,7 +1525,6 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     uint32_t auth_attempts = MEMBER_AUTH_ATTEMPTS;
     time_t dtmf_timer = 0, moh_check_timer = 0;
 
-
     if (!zstr(data)) {
         mycmd = strdup(data);
         switch_assert(mycmd);
@@ -1587,8 +1586,8 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         conference->samplerate = conf_profile->samplerate;
         conference->channels = conf_profile->channels;
         conference->ptime = conf_profile->ptime;
-        conference->conf_idle_max = conf_profile->conf_idle_max;
-        conference->group_idle_max = conf_profile->group_idle_max;
+        conference->conf_term_timer = conf_profile->conf_term_timer;
+        conference->group_term_timer = conf_profile->group_term_timer;
         conference->vad_lvl = conf_profile->vad_level;
         conference->cng_lvl = conf_profile->cng_level;
         conference->user_controls = controls_profile_lookup(conf_profile->user_controls);
@@ -2258,8 +2257,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             conf_profile->channels = 1;
             conf_profile->ptime = 20;
             conf_profile->samplerate = 8000;
-            conf_profile->conf_idle_max = 0;
-            conf_profile->group_idle_max = 0;
+            conf_profile->conf_term_timer = 0;
+            conf_profile->group_term_timer = 0;
             conf_profile->cng_level = 0;
             conf_profile->vad_level = 0;
 
@@ -2275,10 +2274,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                     conf_profile->allow_video = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "alone-sound-enable")) {
                     conf_profile->alone_sound_enabled = (strcasecmp(val, "true") == 0 ? true : false);
-                } else if(!strcasecmp(var, "conference-idle-time-max")) {
-                    conf_profile->conf_idle_max = atoi(val);
-                } else if(!strcasecmp(var, "group-idle-time-max")) {
-                    conf_profile->group_idle_max = atoi(val);
+                } else if(!strcasecmp(var, "conference-term-timer")) {
+                    conf_profile->conf_term_timer = atoi(val);
+                } else if(!strcasecmp(var, "group-term-timer")) {
+                    conf_profile->group_term_timer = atoi(val);
                 } else if(!strcasecmp(var, "samplerate")) {
                     conf_profile->samplerate = atoi(val);
                 } else if(!strcasecmp(var, "channels")) {

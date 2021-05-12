@@ -2,27 +2,12 @@
  start a dynamic conference with the settings of the "default" conference profile in xconf.conf.xml
 -->
 
-<extension name="listener">
-    <condition field="destination_number" expression="^777$">
-        <action application="answer"/>
-        <action application="xconf" data="test1 default"/>
-        <action application="hangup"/>
-    </condition>
-</extension>
-
-<extension name="speker">
-    <condition field="destination_number" expression="^888$">
-        <action application="answer"/>
-        <action application="xconf" data="test1 default +speaker"/>
-        <action application="hangup"/>
-    </condition>
-</extension>
-
-<extension name="admin">
-    <condition field="destination_number" expression="^999$">
-        <action application="answer"/>
-        <action application="xconf" data="test1 default +speaker +admin"/>
-        <action application="hangup"/>
-    </condition>
+<extension name="xconf">
+  <condition field="destination_number" expression="^(30\d{2})$">
+    <action application="answer"/>
+    <action application="xconf" data="$1 default +speaker"/>
+    <!-- <action application="xconf" data="$1 default"/> -->
+    <action application="hangup"/>
+  </condition>
 </extension>
 

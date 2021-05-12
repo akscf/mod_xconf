@@ -3,7 +3,6 @@
         <param name="listener-group-capacity" value="250"/>
     </settings>
 
-    <!-- multicast/p2p -->
     <distributed-mode enabled="false" mode="multicast">
         <param name="shared-secret" value="secret"/>
         <param name="auth-packets" value="true"/>
@@ -37,8 +36,8 @@
             <param name="ptime" value="20"/>
             <param name="samplerate" value="8000"/>
             <param name="channels" value="1"/>
-            <param name="conference-idle-time-max" value="0"/>
-            <param name="group-idle-time-max" value="0"/>
+            <param name="conference-term-timer" value="0"/>
+            <param name="group-term-timer" value="0"/>
             <param name="audio-transcode-enable" value="true"/>
             <param name="video-transcode-enable" value="true"/>
             <param name="allow-video" value="true"/>
