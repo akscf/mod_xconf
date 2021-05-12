@@ -1736,7 +1736,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
 
     /* take semaphore's */
     conference_sem_take(conference);
-    group_sem_take(group);
+    //group_sem_take(group);
 
     /* copy conf settings */
     member->user_controls = conference->user_controls;
@@ -2046,7 +2046,7 @@ out:
                 group->free++;
             }
             switch_mutex_unlock(group->mutex);
-            group_sem_release(group);
+            //group_sem_release(group);
         }
 
         if(member->agc) {
