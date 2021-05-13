@@ -15,3 +15,4 @@
  - vad, cng, agc and standard functions such as: playback/moh and so on (see commans.c)
  - simple balancer (todo)
  
+# Performance tests
