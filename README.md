@@ -8,7 +8,7 @@
  - possible to work in two modes standalone and distributed
  - data exchange using multicast or point-to-point communication (with a helper module: mod_udptun)
  - encryption and authentication traffic between nodes (optional)
- - load reduction by truncate redundant transcoding (caching)
+ - load reduction by reuse transcoding results
  - fast lockings and maximum paralleling
  - control by DTMF (separated profiles for admins and users) or console commands
  - protection throug PIN code  (conference, admin/user access)
