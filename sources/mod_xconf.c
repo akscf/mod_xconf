@@ -223,8 +223,8 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                                         /* vad */
                                         if(conference_flag_test(conference, CF_USE_VAD) && member_flag_test(speaker, MF_VAD)) {
                                             if(speaker->vad_fade_hits) {
-                                                if(speaker->vad_fade_hits > 0) {
-                                                    speaker->vad_fade_hits--;
+                                                speaker->vad_fade_hits--;
+                                                if(speaker->vad_fade_hits) {
                                                     fl_has_audio_local = true;
                                                 } else {
                                                     fl_has_audio_local = false;
@@ -1693,12 +1693,12 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     cn_buffer = switch_core_session_alloc(session, cn_buffer_size);
 
     if(!member->read_codec || !member->write_codec) {
-        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s: channel has no media\n", session_id);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: channel has no media\n", session_id);
         switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Channel has no media!");
         goto out;
     }
     if(member->au_buffer == NULL || member->playback_handle == NULL || write_frame.data == NULL || cn_buffer == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s: mem fail\n", session_id);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", session_id);
         switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Not enough memory!");
         goto out;
     }
@@ -1708,7 +1708,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         goto out;
     }
     if(switch_core_timer_init(&timer, "soft", member->ptime, member->samplerate, seesion_pool) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_SESSION_LOG(session), SWITCH_LOG_ERROR, "%s: timer fail\n", session_id);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: timer fail\n", session_id);
         switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Timer fail!");
         goto out;
     }
