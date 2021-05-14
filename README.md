@@ -1,13 +1,18 @@
 <p>
- A simple module to make scalable conferences on the Freeswitch.<br>
- The module is perfect for the scenario of few speakers and many listeners. Distributed mode provides possibilities to increase conferences capacity in real time.
+ This is a well performance module for Freeswitch to create scalable conferences.<br>
+ The module is perfect for the scenario of few speakers (up 25-50 per instance) and many listeners.<br>
+ Distributed mode provides abillities to manage conferences capacity in real time.
 </p>
 
 # Basic featues
- - possible to work in a standalone mode
- - data exchange (with encryption) using multicast or point-to-point communication
- - truncated redundant transcoding (by reuse encoding results for the similar listeners)
- - fast lockings and maximum parallel processing
- - managing conferences by DTMF (separated profiles for admins and regular users)
- - *vad, *agc, cng (* - in testing mode)
-
+ - possible to work in two modes standalone and distributed
+ - data exchange using multicast or point-to-point communication (with a helper module: mod_udptun)
+ - encryption and authentication traffic between nodes (optional)
+ - load reduction by reuse transcoding results
+ - fast lockings and maximum paralleling
+ - control by DTMF (separated profiles for admins and users) or console commands
+ - protection throug PIN code  (conference, admin/user access)
+ - vad, cng, agc and standard functions such as: playback/moh and so on (see commans.c)
+ - simple balancer (todo)
+ 
+# Performance tests
