@@ -140,7 +140,7 @@ typedef struct {
     int32_t                 vad_lvl;                //
     int32_t                 vad_score;              //
     int32_t                 vad_fade_hits;          //
-    int32_t                 vad_silence_fade_out;   //
+    int32_t                 vad_silence_fade_in;    //
     int32_t                 agc_lvl;                //
     uint32_t                agc_low_lvl;            //
     uint32_t                agc_change_factor;      //

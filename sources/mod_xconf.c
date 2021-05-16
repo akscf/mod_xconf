@@ -189,9 +189,11 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                     net_buffer_len = atbuf->data_len;
 
                     if(atbuf->channels != conference->channels) {
-                        // todo
+                        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "%s: wrong channels number (%i != %i)\n", conference->name, atbuf->channels, conference->channels);
+                        fl_has_audio_net = false;
+                    } else {
+                        fl_has_audio_net = true;
                     }
-                    fl_has_audio_net = true;
                 }
                 audio_tranfser_buffer_free(atbuf);
             }
@@ -229,14 +231,13 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
 
                                 if(switch_core_codec_ready(speaker->read_codec)) {
                                     if(switch_core_codec_decode(speaker->read_codec, NULL, read_frame->data, read_frame->datalen, speaker->samplerate, spk_buffer, &spk_buffer_len, &src_smprt, &flags) == SWITCH_STATUS_SUCCESS) {
-                                        /* mux-demux */
                                         if(speaker->channels != conference->channels) {
                                             // todo
                                         }
 
                                         /* gain */
                                         if(speaker->volume_out_lvl) {
-                                            switch_change_sln_volume((int16_t *)spk_buffer, ((spk_buffer_len / 2) * speaker->channels), speaker->volume_out_lvl);
+                                            switch_change_sln_volume((int16_t *)spk_buffer, (spk_buffer_len / 2), speaker->volume_out_lvl);
                                         }
 
                                         /* vad */
@@ -261,7 +262,7 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                                                         if(member_flag_test(speaker, MF_SPEAKING)) {
                                                             fl_has_audio_spk = false;
                                                             member_flag_set(speaker, MF_SPEAKING, false);
-                                                            speaker->vad_silence_fade_out = 5;
+                                                            speaker->vad_silence_fade_in = 5;
                                                         }
                                                     }
                                                 }
@@ -272,7 +273,7 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                                                 } else {
                                                     fl_has_audio_spk = false;
                                                     member_flag_set(speaker, MF_SPEAKING, false);
-                                                    speaker->vad_silence_fade_out = 5;
+                                                    speaker->vad_silence_fade_in = 5;
                                                 }
                                             }
                                         } else {
@@ -283,7 +284,7 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                                         if(fl_has_audio_spk) {
                                             if(member_flag_test(speaker, MF_AGC) && speaker->agc) {
                                                 switch_mutex_lock(speaker->mutex_agc);
-                                                switch_agc_feed(speaker->agc, (int16_t *)spk_buffer, ((spk_buffer_len / 2) * speaker->channels), speaker->channels);
+                                                switch_agc_feed(speaker->agc, (int16_t *)spk_buffer, (spk_buffer_len / 2), speaker->channels);
                                                 switch_mutex_unlock(speaker->mutex_agc);
                                             }
                                         }
@@ -555,12 +556,11 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
                                     }
                                 }
                                 if(!skip_encode) {
-                                    /* adjust gain */
-                                    if(member->volume_in_lvl > 0) {
-                                        switch_change_sln_volume((int16_t *)atbuf->data, ((atbuf->data_len / 2) * member->channels), member->volume_in_lvl);
+                                    /* gain */
+                                    if(member->volume_in_lvl) {
+                                        switch_change_sln_volume((int16_t *)atbuf->data, (atbuf->data_len / 2), member->volume_in_lvl);
                                     }
-
-                                    /* encode buffer */
+                                    /* encode */
                                     if(switch_core_codec_ready(member->write_codec)) {
                                         if(switch_core_codec_encode(member->write_codec, NULL, atbuf->data, atbuf->data_len, atbuf->samplerate, enc_buffer, &enc_buffer_len, &enc_smprt, &flags) == SWITCH_STATUS_SUCCESS) {
                                             if(audio_cache_size && cur_members_count > 1) {
