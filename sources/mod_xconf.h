@@ -32,6 +32,8 @@
 #define MEMBER_AUTH_ATTEMPTS                    3
 #define MEMBER_MOH_CHECK_INTERVAL               5   // sec
 #define CONF_DEFAULT_LEADIN                     20
+#define VAD_HITS_MAX                            60
+#define VAD_HITS_HALF                           (VAD_HITS_MAX / 2)
 
 #define DM_PAYLOAD_AUDIO                        0xA0
 #define DM_PAYLOAD_VIDEO                        0xA1
@@ -49,8 +51,6 @@
 #define DM_SALT_SIZE                            16
 #define DM_SALT_LIFE_TIME                       900 // sec
 
-#define DMF_FLUSH_CACHE                         0x00
-
 #define DMPF_ENCRYPTED                          0x00
 
 #define CF_AUDIO_TRANSCODE                      0x00
@@ -61,6 +61,7 @@
 #define CF_USE_AUTH                             0x05
 #define CF_ALLOW_VIDEO                          0x06
 #define CF_ALONE_SOUND                          0x07
+#define CF_HAS_MIX                              0x1E
 #define CF_PLAYBACK                             0x1F
 
 #define MF_VAD                                  0x00
@@ -139,6 +140,7 @@ typedef struct {
     int32_t                 vad_lvl;                //
     int32_t                 vad_score;              //
     int32_t                 vad_fade_hits;          //
+    int32_t                 vad_silence_fade_out;   //
     int32_t                 agc_lvl;                //
     uint32_t                agc_low_lvl;            //
     uint32_t                agc_change_factor;      //
@@ -160,6 +162,7 @@ typedef struct {
     controls_profile_t      *admin_controls;        //
     controls_profile_t      *user_controls;         //
     switch_file_handle_t    *playback_handle;       //
+    char                    *playback_filename;     //
     //
     uint32_t                au_buffer_id;           //
     uint32_t                au_data_len;            //
@@ -243,10 +246,12 @@ typedef struct {
     switch_hash_t           *members_idx_hash;      //
     switch_queue_t          *commands_q_in;         // (audio_tranfser_buffer_t)
     switch_queue_t          *audio_q_in;            // (audio_tranfser_buffer_t)
+    switch_queue_t          *audio_mix_q_in;        // (audio_tranfser_buffer_t)
     switch_queue_t          *audio_q_out;           // (audio_tranfser_buffer_t)
     controls_profile_t      *admin_controls;        //
     controls_profile_t      *user_controls;         //
-    switch_file_handle_t    *playback_handle;
+    switch_file_handle_t    *playback_handle;       //
+    char                    *playback_filename;     //
 //    switch_mutex_t          *mutex_nodes_map;
 //    switch_inthash_t        *nodes_map;
 } conference_t;

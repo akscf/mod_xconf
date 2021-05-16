@@ -381,6 +381,10 @@ switch_status_t member_generate_comfort_noises(conference_t *conference, member_
 
     if(conference->cng_lvl) {
         switch_generate_sln_silence((int16_t *)tmp, member->samples_ptime, member->channels, (conference->cng_lvl * (conference->samplerate / 8000)) );
+        if(member->vad_silence_fade_out) {
+            switch_change_sln_volume((int16_t *)tmp, (data_len / 2), (0 - member->vad_silence_fade_out));
+            member->vad_silence_fade_out--;
+        }
         if(switch_core_codec_ready(member->write_codec)) {
             status = switch_core_codec_encode(member->write_codec, NULL, tmp, data_len, member->samplerate, buffer, buffer_size, &enc_smprt, &flags);
         }
