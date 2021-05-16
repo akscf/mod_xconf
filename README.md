@@ -1,6 +1,6 @@
 <p>
- This is a high performance module for the Freeswitch to create audio conferences.<br>
  This module provides services to create large capacity conferences for the scenario when you have several speakers (25-50 per instance) and extremely number of   listeners.<br>
+ Distributed mode helps to separate load between all the nodes, boost summary capacity and provide good quality for audio/video.<br>
  Version 1.7.x - supports only audio conferences.
 </p>
 
@@ -13,7 +13,9 @@
  - control by DTMF (separated profiles for admins and users) or console commands
  - protection throug PIN code  (conference, admin/user access)
  - vad, cng, agc and standard functions such as: playback/moh and so on (see commans.c)
-
+ - speakers limit: 25-50 per instance
+ - listenes limit: 2000-5000 per instance (low/middle cost vm)
+ 
 # ToDo
 - close parts with 'todo' label
 - simple balancer (?)
