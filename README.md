@@ -1,6 +1,5 @@
 <p>
- This module provides services to create large capacity conferences for the scenario when you have several speakers (25-50 per instance) and extremely number of   listeners.<br>
- Distributed mode helps to separate load between all the nodes, boost summary capacity and provide good quality for audio/video.<br>
+ This module provides services to create large capacity conferences for the scenario when you have several speakers (25-50 per instance) and extremely number of   listeners. Distributed mode helps to separate load between all the nodes, boost summary capacity and provide good quality for audio/video.<br>
  Version 1.7.x - supports only audio conferences.
 </p>
 
