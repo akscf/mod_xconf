@@ -1,7 +1,6 @@
 <p>
- This is a high performance module for the Freeswitch to create scalable conferences.<br>
- The module is perfect for the scenario of few speakers (25-50 per instance) and many listeners.<br>
- Distributed mode provides abillities to manage conferences capacity in real time.
+ This is a high performance module for the Freeswitch to create audio conferences.<br>
+This module provides services to create large capacity conferences for the scenario when you have several speakers (25-50 per instance) and extremely number of listeners.
 </p>
 
 # Basic featues
