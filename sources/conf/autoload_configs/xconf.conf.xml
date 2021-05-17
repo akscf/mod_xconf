@@ -1,6 +1,6 @@
 <configuration name="xconf.conf" description="">
     <settings>
-        <param name="listener-group-capacity" value="250"/>
+        <param name="listener-group-capacity" value="200"/>
     </settings>
 
     <distributed-mode enabled="false" mode="multicast">

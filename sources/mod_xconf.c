@@ -231,8 +231,17 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
 
                                 if(switch_core_codec_ready(speaker->read_codec)) {
                                     if(switch_core_codec_decode(speaker->read_codec, NULL, read_frame->data, read_frame->datalen, speaker->samplerate, spk_buffer, &spk_buffer_len, &src_smprt, &flags) == SWITCH_STATUS_SUCCESS) {
+                                        /* mux */
                                         if(speaker->channels != conference->channels) {
-                                            // todo
+                                            uint32_t smps = (spk_buffer_len / 2 / speaker->channels);
+                                            uint32_t tmp_sz = (smps * 2 * conference->channels);
+
+                                            if(tmp_sz <= AUDIO_BUFFER_SIZE) {
+                                                switch_mux_channels((int16_t *)spk_buffer, smps, speaker->channels, conference->channels);
+                                                spk_buffer_len = tmp_sz;
+                                            } else {
+                                                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "MUX: new_len > AUDIO_BUFFER_SIZE (%i > %i)\n", tmp_sz, AUDIO_BUFFER_SIZE);
+                                            }
                                         }
 
                                         /* gain */
@@ -242,7 +251,7 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
 
                                         /* vad */
                                         if(conference_flag_test(conference, CF_USE_VAD) && member_flag_test(speaker, MF_VAD)) {
-                                            if(speaker->vad_fade_hits < VAD_HITS_HALF) {
+                                            if(speaker->vad_hits < VAD_HITS_HALF) {
                                                 int16_t *smpbuf = (int16_t *)spk_buffer;
                                                 uint32_t smps = spk_buffer_len / sizeof(*smpbuf);
                                                 uint32_t lvl = 0;
@@ -253,10 +262,10 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                                                 if(speaker->vad_score > speaker->vad_lvl) {
                                                     fl_has_audio_spk = true;
                                                     member_flag_set(speaker, MF_SPEAKING, true);
-                                                    speaker->vad_fade_hits = VAD_HITS_MAX;
+                                                    speaker->vad_hits = VAD_HITS_MAX;
                                                 } else {
-                                                    if(speaker->vad_fade_hits) { speaker->vad_fade_hits--; }
-                                                    if(speaker->vad_fade_hits) {
+                                                    if(speaker->vad_hits) { speaker->vad_hits--; }
+                                                    if(speaker->vad_hits) {
                                                         fl_has_audio_spk = true;
                                                     } else {
                                                         if(member_flag_test(speaker, MF_SPEAKING)) {
@@ -267,8 +276,8 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                                                     }
                                                 }
                                             } else {
-                                                speaker->vad_fade_hits--;
-                                                if(speaker->vad_fade_hits) {
+                                                speaker->vad_hits--;
+                                                if(speaker->vad_hits) {
                                                     fl_has_audio_spk = true;
                                                 } else {
                                                     fl_has_audio_spk = false;
@@ -319,8 +328,19 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
             switch_mutex_unlock(conference->mutex_speakers);
         }
 
+        if(fl_has_audio_mix) {
+            if(!mix_passes) {
+                out_buffer_len = mix_buffer_len;
+                memcpy(out_buffer, mix_buffer, out_buffer_len);
+            } else {
+                out_buffer_len = (mix_buffer_len < out_buffer_len ? mix_buffer_len : out_buffer_len);
+                mix_i16((int16_t *)out_buffer, (int16_t *)mix_buffer, out_buffer_len / 2);
+            }
+            mix_passes++;
+        }
+
         if(globals.fl_dm_enabled) {
-            if(fl_has_audio_spk) {
+            if(fl_has_audio_spk || fl_has_audio_mix) {
                 audio_tranfser_buffer_t *atb = NULL;
                 audio_tranfser_buffer_alloc(&atb, out_buffer, out_buffer_len);
 
@@ -337,17 +357,6 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
 
         if(fl_has_audio_spk || fl_has_audio_mix || fl_has_audio_net) {
             audio_tranfser_buffer_t *atb = NULL;
-
-            if(fl_has_audio_mix) {
-                if(!mix_passes) {
-                    out_buffer_len = mix_buffer_len;
-                    memcpy(out_buffer, mix_buffer, out_buffer_len);
-                } else {
-                    out_buffer_len = (mix_buffer_len < out_buffer_len ? mix_buffer_len : out_buffer_len);
-                    mix_i16((int16_t *)out_buffer, (int16_t *)mix_buffer, out_buffer_len / 2);
-                }
-                mix_passes++;
-            }
 
             if(fl_has_audio_net) {
                 if(!mix_passes) {
@@ -460,11 +469,12 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
     conference_t *conference = (conference_t *) group->conference;
     const uint32_t audio_cache_size = (globals.audio_cache_size * sizeof(audio_cache_t));
     switch_byte_t *audio_cache = NULL;
-    switch_byte_t *enc_buffer = NULL;
+    switch_byte_t *src_buffer = NULL, *enc_buffer = NULL;
     switch_timer_t timer = { 0 };
     switch_hash_index_t *hidx = NULL;
     uint32_t group_dlock_cnt = 0;
     uint32_t group_id = group->id;
+    uint32_t src_buffer_len = 0;
     time_t term_timer = 0;
     void *pop = NULL;
 
@@ -481,7 +491,12 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
         group->fl_do_destroy = true;
         goto out;
     }
-    if(audio_cache_size > 0) {
+    if((src_buffer = switch_core_alloc(group->pool, AUDIO_BUFFER_SIZE)) == NULL) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference->name);
+        group->fl_do_destroy = true;
+        goto out;
+    }
+    if(audio_cache_size) {
         if((audio_cache = switch_core_alloc(group->pool, audio_cache_size)) == NULL) {
             switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference->name);
             group->fl_do_destroy = true;
@@ -516,6 +531,11 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
                     memset(audio_cache, 0x0, audio_cache_size);
                 }
 
+                /* copy to local buffer */
+                memcpy(src_buffer, atbuf->data, atbuf->data_len);
+                src_buffer_len = atbuf->data_len;
+
+                /* foreach members */
                 switch_mutex_lock(group->mutex_members);
                 for (hidx = switch_core_hash_first_iter(group->members, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
                     const void *hkey = NULL; void *hval = NULL;
@@ -549,20 +569,34 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
                                         if(cache->id == cache_id && cache->data_len > 0) {
                                             cache->ucnt++;
                                             enc_buffer_len = cache->data_len;
-                                            memcpy((char *)enc_buffer, (char *)cache->data, cache->data_len);
+                                            memcpy(enc_buffer, cache->data, cache->data_len);
                                             skip_encode = true;
                                             break;
                                         }
                                     }
                                 }
                                 if(!skip_encode) {
+                                    /* mux */
+                                    if(member->channels != conference->channels) {
+                                        uint32_t smps = (src_buffer_len / 2 / conference->channels);
+                                        uint32_t tmp_sz = (smps * 2 * member->channels);
+
+                                        if(tmp_sz <= AUDIO_BUFFER_SIZE) {
+                                            switch_mux_channels((int16_t *)src_buffer, smps, conference->channels, member->channels);
+                                            src_buffer_len = tmp_sz;
+                                        } else {
+                                            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "MUX: new_len > AUDIO_BUFFER_SIZE (%i > %i)\n", tmp_sz, AUDIO_BUFFER_SIZE);
+                                        }
+                                    }
+
                                     /* gain */
                                     if(member->volume_in_lvl) {
-                                        switch_change_sln_volume((int16_t *)atbuf->data, (atbuf->data_len / 2), member->volume_in_lvl);
+                                        switch_change_sln_volume((int16_t *)src_buffer, (src_buffer_len / 2), member->volume_in_lvl);
                                     }
+
                                     /* encode */
                                     if(switch_core_codec_ready(member->write_codec)) {
-                                        if(switch_core_codec_encode(member->write_codec, NULL, atbuf->data, atbuf->data_len, atbuf->samplerate, enc_buffer, &enc_buffer_len, &enc_smprt, &flags) == SWITCH_STATUS_SUCCESS) {
+                                        if(switch_core_codec_encode(member->write_codec, NULL, src_buffer, src_buffer_len, atbuf->samplerate, enc_buffer, &enc_buffer_len, &enc_smprt, &flags) == SWITCH_STATUS_SUCCESS) {
                                             if(audio_cache_size && cur_members_count > 1) {
                                                 audio_cache_t *ex_cache = NULL;
 
@@ -580,7 +614,7 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
                                                     ex_cache->id = cache_id;
                                                     ex_cache->ucnt = 0;
                                                     ex_cache->data_len = enc_buffer_len;
-                                                    memcpy((char *)ex_cache->data, (char *)enc_buffer, enc_buffer_len);
+                                                    memcpy(ex_cache->data, enc_buffer, enc_buffer_len);
                                                 }
                                             }
                                         }
@@ -598,11 +632,11 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
                                 }
                             } else { /* transcoding | as-is */
                                 if(member->fl_au_rdy_wr) {
-                                    memcpy(member->au_buffer, atbuf->data, atbuf->data_len);
+                                    memcpy(member->au_buffer, src_buffer, src_buffer_len);
 
                                     switch_mutex_lock(member->mutex_audio);
                                     member->au_buffer_id = atbuf->id;
-                                    member->au_data_len = atbuf->data_len;
+                                    member->au_data_len = src_buffer_len;
                                     switch_mutex_unlock(member->mutex_audio);
                                 }
                             }
@@ -2137,10 +2171,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
     globals.fl_dm_enabled = false;
     globals.fl_dm_auth_enabled = true;
     globals.fl_dm_encrypt_payload = true;
-    globals.listener_group_capacity = 250;
-    globals.audio_cache_size = 5;
+    globals.listener_group_capacity = 200;
+    globals.audio_cache_size = 10; // (globals.listener_group_capacity / 2)
     globals.local_queue_size = 16;
-    globals.dm_queue_size = 28;
+    globals.dm_queue_size = 32;
     globals.dm_port_in = 65021;
     globals.dm_port_out = 65021;
 
@@ -2479,7 +2513,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
 
     *module_interface = switch_loadable_module_create_module_interface(pool, modname);
     SWITCH_ADD_API(commands_interface, "xconf", "manage conferences", xconf_cmd_function, CMD_SYNTAX);
-    SWITCH_ADD_APP(app_interface, "xconf", "manage conferences", "manage conferences", xconf_app_api, APP_SYNTAX, SAF_NONE);
+    SWITCH_ADD_APP(app_interface, "xconf", "conferences app", "conferences app", xconf_app_api, APP_SYNTAX, SAF_NONE);
 
     if (switch_event_bind(modname, SWITCH_EVENT_SHUTDOWN, SWITCH_EVENT_SUBCLASS_ANY, event_handler_shutdown, NULL) != SWITCH_STATUS_SUCCESS) {
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Couldn't bind event handler!\n");
