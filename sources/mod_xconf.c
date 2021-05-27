@@ -14,7 +14,8 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
 static void *SWITCH_THREAD_FUNC conference_audio_produce_thread(switch_thread_t *thread, void *obj);
 static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch_thread_t *thread, void *obj);
 static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *thread, void *obj);
-static void *SWITCH_THREAD_FUNC dm_client_thread(switch_thread_t *thread, void *obj);
+static void *SWITCH_THREAD_FUNC dm_client_thread_audio(switch_thread_t *thread, void *obj);
+static void *SWITCH_THREAD_FUNC dm_client_thread_any(switch_thread_t *thread, void *obj);
 static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *obj);
 
 //---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -137,7 +138,6 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
     if(!conference_sem_take(conference)) {
         goto out;
     }
-
     if(switch_core_timer_init(&timer, "soft", conference->ptime, conference->samplerate, conference->pool) != SWITCH_STATUS_SUCCESS) {
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: timer fail\n", conference->name);
         conference->fl_do_destroy = true;
@@ -224,7 +224,7 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
                     if(member_can_speak(speaker)) {
                         status = switch_core_session_read_frame(speaker->session, &read_frame, SWITCH_IO_FLAG_NONE, 0);
                         if(SWITCH_READ_ACCEPTABLE(status) && read_frame->samples > 0 && !switch_test_flag(read_frame, SFF_CNG)) {
-                            if(conference_flag_test(conference, CF_AUDIO_TRANSCODE)) {
+                            if(conference_flag_test(conference, CF_TRANSCODING)) {
                                 uint32_t flags = 0;
                                 uint32_t src_smprt = speaker->samplerate;
                                 spk_buffer_len = AUDIO_BUFFER_SIZE;
@@ -550,7 +550,7 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
 
                     if(member_sem_take(member)) {
                         if(member_can_hear(member)) {
-                            if(conference_flag_test(conference, CF_AUDIO_TRANSCODE)) {
+                            if(conference_flag_test(conference, CF_TRANSCODING)) {
                                 uint32_t flags = 0, cache_id = 0, skip_encode = false;
                                 uint32_t enc_smprt = member->samplerate;
                                 uint32_t enc_buffer_len = AUDIO_BUFFER_SIZE;
@@ -692,8 +692,19 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
     conference_t *conference = (conference_t *) _ref;
     const uint32_t conference_id = conference->id;
     char *conference_name = switch_mprintf("%s", conference->name);
-    time_t term_timer = 0;
+    switch_hash_index_t *hidx = NULL;
+    void *hval = NULL, *pop = NULL;
+    node_conference_status_t *cur_conf_status = NULL;
+    time_t term_timer = 0, status_update_timer = 0, status_send_timer = 0;
     uint32_t conf_dlock_cnt = 0;
+
+
+    if(globals.fl_dm_enabled) {
+        if((cur_conf_status = switch_core_alloc(conference->pool, sizeof(node_conference_status_t))) == NULL) {
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference_name);
+            goto out;
+        }
+    }
 
     conference->fl_do_destroy = false;
     conference->fl_ready = true;
@@ -703,6 +714,7 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
             break;
         }
 
+        /* term timer */
         if(term_timer > 0) {
             if(conference->speakers_local > 0 || conference->members_local > 0) {
                 term_timer = 0;
@@ -711,15 +723,102 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
                 break;
             }
         }
-
         if(conference->speakers_local == 0 && conference->members_local == 0) {
             if(conference->conf_term_timer > 0 && term_timer == 0) {
                 term_timer = (switch_epoch_time_now(NULL) + conference->conf_term_timer);
             }
         }
+
+        if(globals.fl_dm_enabled) {
+            /* events/comands */
+            while(switch_queue_trypop(conference->common_q_in, &pop) == SWITCH_STATUS_SUCCESS) {
+                common_queue_entry_t *entry = (common_queue_entry_t *) pop;
+                if(entry && entry->data_len) {
+                    if(entry->type == CQE_TYPE_CONF_STATUS) {
+                        node_conference_status_t *rm_conf_status = (node_conference_status_t *)entry->data;
+                        node_conference_status_t *status = NULL;
+
+                        switch_mutex_lock(conference->mutex_dm_nodes_map);
+                        status = switch_core_inthash_find(conference->dm_nodes_map, rm_conf_status->node_id);
+                        if(!status) {
+                            switch_zmalloc(status, sizeof(node_conference_status_t));
+                            memcpy((void *)status, (void *)rm_conf_status, sizeof(node_conference_status_t));
+                            switch_core_inthash_insert(conference->dm_nodes_map, status->node_id, status);
+                        } else {
+                            status->members = rm_conf_status->members;
+                            status->speakers = rm_conf_status->speakers;
+                        }
+                        status->updated = switch_epoch_time_now(NULL);
+                        status->expiry = (switch_epoch_time_now(NULL) + DM_NODE_LIFETIME);
+
+                        switch_mutex_unlock(conference->mutex_dm_nodes_map);
+                    }
+                }
+                common_queue_entry_free(entry);
+
+                if(globals.fl_shutdown || conference->fl_do_destroy) { break; }
+            }
+
+            /* send status */
+            if(conference_flag_test(conference, CF_USE_DM_STATUS)) {
+                if(!status_send_timer) {
+                    status_send_timer = (switch_epoch_time_now(NULL) + DM_CONF_STATUS_SEND_INTERVAL);
+                }
+                if(status_send_timer <= switch_epoch_time_now(NULL)) {
+                    common_queue_entry_t *entry = NULL;
+
+                    cur_conf_status->node_id = globals.dm_node_id;
+                    cur_conf_status->members = conference->members_local;
+                    cur_conf_status->speakers = conference->speakers_local;
+
+                    common_queue_entry_alloc(&entry, conference->id, CQE_TYPE_CONF_STATUS, (void *)cur_conf_status, sizeof(node_conference_status_t));
+                    if(switch_queue_trypush(globals.dm_common_queue_out, entry) != SWITCH_STATUS_SUCCESS) {
+                        common_queue_entry_free(entry);
+                    }
+                    status_send_timer = (switch_epoch_time_now(NULL) + DM_CONF_STATUS_SEND_INTERVAL);
+                }
+            }
+
+            /* update counters by remote nodes */
+            if(!status_update_timer) {
+                status_update_timer = (switch_epoch_time_now(NULL) + DM_CONF_STATUS_UPDATE_INTERVAL);
+            }
+            if(status_update_timer <= switch_epoch_time_now(NULL)) {
+                uint32_t st = conference->speakers_local;
+                uint32_t mt = conference->members_local;
+
+                switch_mutex_lock(conference->mutex_dm_nodes_map);
+                for(hidx = switch_core_hash_first_iter(conference->dm_nodes_map, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
+                    node_conference_status_t *status = NULL;
+
+                    switch_core_hash_this(hidx, NULL, NULL, &hval);
+                    status = (node_conference_status_t *) hval;
+                    if(status) {
+                        if(status->expiry > switch_epoch_time_now(NULL)) {
+                            st += status->speakers;
+                            mt += status->members;
+                        } else {
+                            switch_core_inthash_delete(conference->dm_nodes_map, status->node_id);
+                            switch_safe_free(status);
+                        }
+                    }
+                }
+                switch_mutex_unlock(conference->mutex_dm_nodes_map);
+
+                switch_mutex_lock(conference->mutex_dm_status);
+                conference->speakers_total = st;
+                conference->members_total = mt;
+                conference->fl_total_synced = true;
+                switch_mutex_unlock(conference->mutex_dm_status);
+
+                status_update_timer = (switch_epoch_time_now(NULL) + DM_CONF_STATUS_UPDATE_INTERVAL);
+            }
+        }
+
         switch_yield(10000);
     }
 
+out:
     /* finish the conference */
     conference->fl_ready = false;
     conference->fl_destroyed = true;
@@ -733,6 +832,9 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
         }
     }
 
+    flush_audio_queue(conference->common_q_in);
+    switch_queue_term(conference->common_q_in);
+
     flush_audio_queue(conference->audio_q_in);
     flush_audio_queue(conference->audio_q_out);
     flush_audio_queue(conference->audio_mix_q_in);
@@ -740,15 +842,28 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
     switch_queue_term(conference->audio_q_out);
     switch_queue_term(conference->audio_mix_q_in);
 
-    flush_commands_queue(conference->commands_q_in);
-    switch_queue_term(conference->commands_q_in);
-
+    switch_core_hash_destroy(&conference->members_idx_hash);
     switch_core_inthash_destroy(&conference->listeners);
     switch_core_inthash_destroy(&conference->speakers);
 
-    switch_core_hash_destroy(&conference->members_idx_hash);
+    switch_mutex_lock(conference->mutex_dm_nodes_map);
+    for(hidx = switch_core_hash_first_iter(conference->dm_nodes_map, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
+        node_conference_status_t *entry = NULL;
+
+        switch_core_hash_this(hidx, NULL, NULL, &hval);
+        entry = (node_conference_status_t *) hval;
+        if(entry) {
+            switch_core_inthash_delete(conference->dm_nodes_map, entry->node_id);
+            switch_safe_free(entry);
+        }
+    }
+    switch_safe_free(hidx);
+    switch_core_inthash_destroy(&conference->dm_nodes_map);
+    switch_mutex_unlock(conference->mutex_dm_nodes_map);
+
     switch_core_destroy_memory_pool(&conference->pool);
 
+    // -----------
     switch_mutex_lock(globals.mutex_conferences);
     switch_core_inthash_delete(globals.conferences_hash, conference_id);
     switch_mutex_unlock(globals.mutex_conferences);
@@ -876,7 +991,7 @@ out:
     return status;
 }
 
-static void *SWITCH_THREAD_FUNC dm_client_thread(switch_thread_t *thread, void *obj) {
+static void *SWITCH_THREAD_FUNC dm_client_thread_any(switch_thread_t *thread, void *obj) {
     const uint32_t dm_auth_buffer_len = (strlen(globals.dm_shared_secret) + DM_SALT_SIZE);
     const uint32_t send_buffer_size = DM_IO_BUFFER_SIZE;
     switch_status_t status = SWITCH_STATUS_SUCCESS;
@@ -887,8 +1002,8 @@ static void *SWITCH_THREAD_FUNC dm_client_thread(switch_thread_t *thread, void *
     switch_byte_t *dm_auth_buffer = NULL;    /* keeps salt + secret */
     switch_byte_t *paylod_data_ptr = NULL;
     cipher_ctx_t *cipher_ctx = NULL;
-    dm_packet_hdr_t *phdr_ptr = NULL;
-    dm_payload_audio_hdr_t *ahdr_ptr = NULL;
+    dm_packet_hdr_t *pkt_hdr_ptr = NULL;
+    dm_payload_any_hdr_t *any_hdr_ptr = NULL;
     uint32_t packet_seq = 0, send_len = 0;
     time_t salt_renew_time = 0;
     switch_size_t bytes = 0;
@@ -936,8 +1051,144 @@ static void *SWITCH_THREAD_FUNC dm_client_thread(switch_thread_t *thread, void *
             }
         }
 
-        while(switch_queue_trypop(globals.dm_command_queue_out, &pop) == SWITCH_STATUS_SUCCESS) {
-            /* todo, conference commands */
+        while(switch_queue_trypop(globals.dm_common_queue_out, &pop) == SWITCH_STATUS_SUCCESS) {
+            common_queue_entry_t *entry = (common_queue_entry_t *) pop;
+
+            if(globals.fl_shutdown) { goto out; }
+
+            if(entry || entry->data_len) {
+                send_len = (sizeof(dm_packet_hdr_t) + sizeof(dm_payload_any_hdr_t) + entry->data_len);
+
+                if(send_len <= send_buffer_size) {
+                    memset((void *)send_buffer, 0x0, send_len);
+
+                    pkt_hdr_ptr = (void *)(send_buffer);
+                    any_hdr_ptr = (void *)(send_buffer + sizeof(*pkt_hdr_ptr));
+                    paylod_data_ptr = (void *)(send_buffer + sizeof(*pkt_hdr_ptr) + sizeof(*any_hdr_ptr));
+
+                    /* set up packet hdr */
+                    pkt_hdr_ptr->node_id = globals.dm_node_id;
+                    pkt_hdr_ptr->packet_id = packet_seq;
+                    pkt_hdr_ptr->payload_type = DM_PAYLOAD_ANY;
+                    pkt_hdr_ptr->packet_flags = 0x0;
+                    pkt_hdr_ptr->payload_len = (sizeof(dm_payload_any_hdr_t) + entry->data_len);
+
+                    /* sign packet */
+                    if(globals.fl_dm_auth_enabled) {
+                        switch_md5_string((char *)pkt_hdr_ptr->auth_hash, dm_auth_buffer, dm_auth_buffer_len);
+                        memcpy(pkt_hdr_ptr->auth_salt, dm_auth_buffer, DM_SALT_SIZE);
+                    }
+
+                    /* payload */
+                    any_hdr_ptr->magic = DM_PAYLOAD_MAGIC;
+                    any_hdr_ptr->conference_id = entry->conference_id;
+                    any_hdr_ptr->type = entry->type;
+                    any_hdr_ptr->len = entry->data_len;
+
+                    memcpy(paylod_data_ptr, entry->data, entry->data_len);
+
+                    /* encrypt payload */
+                    if(globals.fl_dm_encrypt_payload) {
+                        uint8_t *data_ptr = (void *)(any_hdr_ptr);
+                        uint32_t psz = pkt_hdr_ptr->payload_len;
+                        uint32_t pad = (psz % sizeof(int));
+
+                        if(pad) { psz += sizeof(int) - pad; }
+                        if(psz > send_buffer_size) { psz = pkt_hdr_ptr->payload_len; }
+
+                        cipher_encrypt(cipher_ctx, pkt_hdr_ptr->packet_id, data_ptr, psz);
+                        dm_packet_flag_set(pkt_hdr_ptr, DMPF_ENCRYPTED, true);
+                    }
+
+                    bytes = send_len;
+                    switch_socket_sendto(socket, dst_addr, 0, (void *)send_buffer, &bytes);
+
+                    packet_seq++;
+                } else {
+                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "packet is too large: %i  (max: %i) [#1]\n", send_len, send_buffer_size);
+                }
+            }
+            common_queue_entry_free(entry);
+        }
+        switch_yield(10000);
+    }
+
+out:
+    if(status != SWITCH_STATUS_SUCCESS) {
+        globals.fl_shutdown = true;
+    }
+    if (socket) {
+        switch_socket_close(socket);
+    }
+    if(pool) {
+        switch_core_destroy_memory_pool(&pool);
+    }
+
+    switch_mutex_lock(globals.mutex);
+    if(globals.active_threads) globals.active_threads--;
+    switch_mutex_unlock(globals.mutex);
+
+    return NULL;
+}
+
+static void *SWITCH_THREAD_FUNC dm_client_thread_audio(switch_thread_t *thread, void *obj) {
+    const uint32_t dm_auth_buffer_len = (strlen(globals.dm_shared_secret) + DM_SALT_SIZE);
+    const uint32_t send_buffer_size = DM_IO_BUFFER_SIZE;
+    switch_status_t status = SWITCH_STATUS_SUCCESS;
+    switch_memory_pool_t *pool = NULL;
+    switch_socket_t *socket = NULL;
+    switch_sockaddr_t *dst_addr = NULL;
+    switch_byte_t *send_buffer = NULL;       /* fixed size buffer */
+    switch_byte_t *dm_auth_buffer = NULL;    /* keeps salt + secret */
+    switch_byte_t *paylod_data_ptr = NULL;
+    cipher_ctx_t *cipher_ctx = NULL;
+    dm_packet_hdr_t *pkt_hdr_ptr = NULL;
+    dm_payload_audio_hdr_t *au_hdr_ptr = NULL;
+    uint32_t packet_seq = 0, send_len = 0;
+    time_t salt_renew_time = 0;
+    switch_size_t bytes = 0;
+    void *pop = NULL;
+
+    if(switch_core_new_memory_pool(&pool) != SWITCH_STATUS_SUCCESS) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+        switch_goto_status(SWITCH_STATUS_GENERR, out);
+    }
+    if((send_buffer = switch_core_alloc(pool, send_buffer_size)) == NULL) {
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+        switch_goto_status(SWITCH_STATUS_GENERR, out);
+    }
+
+    if(globals.fl_dm_auth_enabled) {
+        if((dm_auth_buffer = switch_core_alloc(pool, dm_auth_buffer_len)) == NULL) {
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+            switch_goto_status(SWITCH_STATUS_GENERR, out);
+        }
+        switch_stun_random_string((char *)dm_auth_buffer, DM_SALT_SIZE, NULL);
+        memcpy((void *)(dm_auth_buffer + DM_SALT_SIZE), globals.dm_shared_secret, strlen(globals.dm_shared_secret));
+    }
+
+    if(globals.fl_dm_encrypt_payload) {
+        if((cipher_ctx = switch_core_alloc(pool, sizeof(cipher_ctx_t))) == NULL) {
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+            switch_goto_status(SWITCH_STATUS_GENERR, out);
+        }
+        cipher_init(cipher_ctx, globals.dm_shared_secret, strlen(globals.dm_shared_secret));
+    }
+
+    if((status = init_client_socket(&socket, &dst_addr, pool)) != SWITCH_STATUS_SUCCESS) {
+        goto out;
+    }
+
+    while(true) {
+        if(globals.fl_shutdown) {
+            break;
+        }
+
+        if(globals.fl_dm_auth_enabled) {
+            if(!salt_renew_time || salt_renew_time < switch_epoch_time_now(NULL)) {
+                switch_stun_random_string((char *)dm_auth_buffer, DM_SALT_SIZE, NULL);
+                salt_renew_time = (switch_epoch_time_now(NULL) + DM_SALT_LIFE_TIME);
+            }
         }
 
         while(switch_queue_trypop(globals.dm_audio_queue_out, &pop) == SWITCH_STATUS_SUCCESS) {
@@ -951,43 +1202,43 @@ static void *SWITCH_THREAD_FUNC dm_client_thread(switch_thread_t *thread, void *
                 if(send_len <= send_buffer_size) {
                     memset((void *)send_buffer, 0x0, send_len);
 
-                    phdr_ptr = (void *)(send_buffer);
-                    ahdr_ptr = (void *)(send_buffer + sizeof(*phdr_ptr));
-                    paylod_data_ptr = (void *)(send_buffer + sizeof(*phdr_ptr) + sizeof(*ahdr_ptr));
+                    pkt_hdr_ptr = (void *)(send_buffer);
+                    au_hdr_ptr = (void *)(send_buffer + sizeof(*pkt_hdr_ptr));
+                    paylod_data_ptr = (void *)(send_buffer + sizeof(*pkt_hdr_ptr) + sizeof(*au_hdr_ptr));
 
                     /* set up packet hdr */
-                    phdr_ptr->node_id = globals.dm_node_id;
-                    phdr_ptr->packet_id = packet_seq;
-                    phdr_ptr->packet_flags = 0x0;
-                    phdr_ptr->payload_type = DM_PAYLOAD_AUDIO;
-                    phdr_ptr->payload_len = (sizeof(dm_payload_audio_hdr_t) + atbuf->data_len);
+                    pkt_hdr_ptr->node_id = globals.dm_node_id;
+                    pkt_hdr_ptr->packet_id = packet_seq;
+                    pkt_hdr_ptr->payload_type = DM_PAYLOAD_AUDIO;
+                    pkt_hdr_ptr->packet_flags = 0x0;
+                    pkt_hdr_ptr->payload_len = (sizeof(dm_payload_audio_hdr_t) + atbuf->data_len);
 
                     /* sign packet */
                     if(globals.fl_dm_auth_enabled) {
-                        switch_md5_string((char *)phdr_ptr->auth_hash, dm_auth_buffer, dm_auth_buffer_len);
-                        memcpy(phdr_ptr->auth_salt, dm_auth_buffer, DM_SALT_SIZE);
+                        switch_md5_string((char *)pkt_hdr_ptr->auth_hash, dm_auth_buffer, dm_auth_buffer_len);
+                        memcpy(pkt_hdr_ptr->auth_salt, dm_auth_buffer, DM_SALT_SIZE);
                     }
 
                     /* payload */
-                    ahdr_ptr->magic = DM_PAYLOAD_MAGIC;
-                    ahdr_ptr->conference_id = atbuf->conference_id;
-                    ahdr_ptr->samplerate = atbuf->samplerate;
-                    ahdr_ptr->channels = atbuf->channels;
-                    ahdr_ptr->data_len = atbuf->data_len;
+                    au_hdr_ptr->magic = DM_PAYLOAD_MAGIC;
+                    au_hdr_ptr->conference_id = atbuf->conference_id;
+                    au_hdr_ptr->samplerate = atbuf->samplerate;
+                    au_hdr_ptr->channels = atbuf->channels;
+                    au_hdr_ptr->data_len = atbuf->data_len;
 
                     memcpy(paylod_data_ptr, atbuf->data, atbuf->data_len);
 
                     /* encrypt payload */
                     if(globals.fl_dm_encrypt_payload) {
-                        uint8_t *data_ptr = (void *)(ahdr_ptr);
-                        uint32_t psz = phdr_ptr->payload_len;
+                        uint8_t *data_ptr = (void *)(au_hdr_ptr);
+                        uint32_t psz = pkt_hdr_ptr->payload_len;
                         uint32_t pad = (psz % sizeof(int));
 
                         if(pad) { psz += sizeof(int) - pad; }
-                        if(psz > send_buffer_size) { psz = phdr_ptr->payload_len; }
+                        if(psz > send_buffer_size) { psz = pkt_hdr_ptr->payload_len; }
 
-                        cipher_encrypt(cipher_ctx, phdr_ptr->packet_id, data_ptr, psz);
-                        dm_packet_flag_set(phdr_ptr, DMPF_ENCRYPTED, true);
+                        cipher_encrypt(cipher_ctx, pkt_hdr_ptr->packet_id, data_ptr, psz);
+                        dm_packet_flag_set(pkt_hdr_ptr, DMPF_ENCRYPTED, true);
                     }
 
                     bytes = send_len;
@@ -996,7 +1247,7 @@ static void *SWITCH_THREAD_FUNC dm_client_thread(switch_thread_t *thread, void *
                     packet_seq++;
                 }
             } else {
-                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "packet is too long: %i  (max: %i)\n", send_len, send_buffer_size);
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "packet is too large: %i  (max: %i) [#2]\n", send_len, send_buffer_size);
             }
             audio_tranfser_buffer_free(atbuf);
         }
@@ -1032,18 +1283,17 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
     switch_sockaddr_t *from_addr = NULL;
     switch_byte_t *recv_buffer = NULL;     /* fixed size buffer */
     switch_byte_t *dm_auth_buffer = NULL;  /* keeps salt + secret */
-    switch_byte_t *paylod_data_ptr = NULL;
     switch_inthash_t *nodes_stats_map = NULL;
     cipher_ctx_t *cipher_ctx = NULL;
     char md5_hash[SWITCH_MD5_DIGEST_STRING_SIZE] = { 0 };
-    dm_packet_hdr_t *phdr_ptr = NULL;
-    dm_payload_audio_hdr_t *ahdr_ptr = NULL;
+    dm_packet_hdr_t *pkt_hdr_ptr = NULL;
     conference_t *conference = NULL;
-    node_stat_t *node_stat = NULL;
+    node_rtp_status_t *node_rtp_status = NULL;
     switch_size_t bytes = 0;
     time_t check_seq_timer = 0;
     uint32_t nodes_count = 0;
     const char *ip_addr_remote;
+    uint8_t fl_pkt_otdated = true;
     char ipbuf[48];
     int fdr = 0;
 
@@ -1098,101 +1348,140 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
 
         bytes = recv_buffer_size;
         if(switch_socket_recvfrom(from_addr, socket, 0, (void *)recv_buffer, &bytes) == SWITCH_STATUS_SUCCESS && bytes > sizeof(dm_packet_hdr_t)) {
-            phdr_ptr = (void *)(recv_buffer);
+            pkt_hdr_ptr = (void *)(recv_buffer);
             ip_addr_remote = switch_get_addr(ipbuf, sizeof(ipbuf), from_addr);
 
-            if(globals.dm_node_id == phdr_ptr->node_id) {
+            if(globals.dm_node_id == pkt_hdr_ptr->node_id) {
                 goto sleep;
             }
 
-            if(!phdr_ptr->payload_len || phdr_ptr->payload_len > recv_buffer_size) {
+            if(!pkt_hdr_ptr->payload_len || pkt_hdr_ptr->payload_len > recv_buffer_size) {
                 goto sleep;
             }
 
             /* check sign */
             if(globals.fl_dm_auth_enabled) {
-                memcpy(dm_auth_buffer, (char *)phdr_ptr->auth_salt, DM_SALT_SIZE);
+                memcpy(dm_auth_buffer, (char *)pkt_hdr_ptr->auth_salt, DM_SALT_SIZE);
                 switch_md5_string((char *)md5_hash, dm_auth_buffer, dm_auth_buffer_len);
 
-                if(strncmp((char *)md5_hash, (char *)phdr_ptr->auth_hash, sizeof(md5_hash)) !=0) {
+                if(strncmp((char *)md5_hash, (char *)pkt_hdr_ptr->auth_hash, sizeof(md5_hash)) !=0) {
                     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Unauthorized packet (ip: %s)\n", ip_addr_remote);
                     goto sleep;
                 }
             }
 
-            /* flush nodes state cache */
+            /* flush nodes state cache (temporary) */
             if(globals.fl_dm_do_flush_status_cache) {
                 dm_server_clean_nodes_status_cache(nodes_stats_map, true);
                 globals.fl_dm_do_flush_status_cache = false;
                 nodes_count = 0;
             }
+
             /* drop outdated packets */
-            node_stat = switch_core_inthash_find(nodes_stats_map, phdr_ptr->node_id);
-            if(!node_stat) {
+            fl_pkt_otdated = true;
+            node_rtp_status = switch_core_inthash_find(nodes_stats_map, pkt_hdr_ptr->node_id);
+            if(!node_rtp_status) {
                 if(nodes_count > DM_MAX_NODES) {
                     switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Too many nodes (max: %i)\n", DM_MAX_NODES);
                     goto sleep;
                 }
+                switch_zmalloc(node_rtp_status, sizeof(node_rtp_status_t));
 
-                switch_zmalloc(node_stat, sizeof(node_stat_t));
+                if(pkt_hdr_ptr->payload_type == DM_PAYLOAD_AUDIO) {
+                    node_rtp_status->media_packet_id = pkt_hdr_ptr->packet_id;
+                } else if(pkt_hdr_ptr->payload_type == DM_PAYLOAD_ANY) {
+                    node_rtp_status->any_packet_id = pkt_hdr_ptr->packet_id;
+                }
 
-                node_stat->node = phdr_ptr->node_id;
-                node_stat->last_id = phdr_ptr->packet_id;
-                node_stat->expiry = (switch_epoch_time_now(NULL) + DM_NODE_LIFETIME);
+                node_rtp_status->node_id = pkt_hdr_ptr->node_id;
+                node_rtp_status->expiry = (switch_epoch_time_now(NULL) + DM_NODE_LIFETIME);
 
-                switch_core_inthash_insert(nodes_stats_map, node_stat->node, node_stat);
+                switch_core_inthash_insert(nodes_stats_map, node_rtp_status->node_id, node_rtp_status);
+
+                fl_pkt_otdated = false;
                 nodes_count++;
-
             } else {
-                if(!node_stat->last_id || phdr_ptr->packet_id > node_stat->last_id) {
-                    node_stat->last_id = phdr_ptr->packet_id;
-                    node_stat->expiry = (switch_epoch_time_now(NULL) + DM_NODE_LIFETIME);
+                if(pkt_hdr_ptr->payload_type == DM_PAYLOAD_AUDIO) {
+                    if(!node_rtp_status->media_packet_id || pkt_hdr_ptr->packet_id > node_rtp_status->media_packet_id) {
+                        node_rtp_status->media_packet_id = pkt_hdr_ptr->packet_id;
+                        node_rtp_status->expiry = (switch_epoch_time_now(NULL) + DM_NODE_LIFETIME);
+                        fl_pkt_otdated = false;
+                    }
+                } else if(pkt_hdr_ptr->payload_type == DM_PAYLOAD_ANY) {
+                    if(!node_rtp_status->any_packet_id || pkt_hdr_ptr->packet_id > node_rtp_status->any_packet_id) {
+                        node_rtp_status->any_packet_id = pkt_hdr_ptr->packet_id;
+                        node_rtp_status->expiry = (switch_epoch_time_now(NULL) + DM_NODE_LIFETIME);
+                        fl_pkt_otdated = false;
+                    }
+                }
+            }
+            if(fl_pkt_otdated) {
+                goto sleep;
+            }
+
+            /* decrypt payload */
+            if(dm_packet_flag_test(pkt_hdr_ptr, DMPF_ENCRYPTED)) {
+                if(globals.fl_dm_encrypt_payload) {
+                    uint8_t *data_ptr = (void *)(recv_buffer + sizeof(*pkt_hdr_ptr));
+                    uint32_t psz = pkt_hdr_ptr->payload_len;
+                    uint32_t pad = (psz % sizeof(int));
+
+                    if(pad) { psz += sizeof(int) - pad; }
+                    if(psz > recv_buffer_size) { psz = pkt_hdr_ptr->payload_len; }
+
+                    cipher_decrypt(cipher_ctx, pkt_hdr_ptr->packet_id, data_ptr, psz);
                 } else {
+                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Couldn't decrypt packet from '%s' (encryption disabled)\n", ip_addr_remote);
                     goto sleep;
                 }
             }
 
-            /* decrypt payload */
-            if(dm_packet_flag_test(phdr_ptr, DMPF_ENCRYPTED)) {
-                if(globals.fl_dm_encrypt_payload) {
-                    uint8_t *data_ptr = (void *)(recv_buffer + sizeof(*phdr_ptr));
-                    uint32_t psz = phdr_ptr->payload_len;
-                    uint32_t pad = (psz % sizeof(int));
+            /* validate magic */
+            if(pkt_hdr_ptr->payload_len > sizeof(dm_payload_magic_hdr_t)) {
+                dm_payload_magic_hdr_t *magic = (void *)(recv_buffer + sizeof(*pkt_hdr_ptr));
 
-                    if(pad) { psz += sizeof(int) - pad; }
-                    if(psz > recv_buffer_size) { psz = phdr_ptr->payload_len; }
-
-                    cipher_decrypt(cipher_ctx, phdr_ptr->packet_id, data_ptr, psz);
-                } else {
-                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Encrypted packet from '%s' was ignored! (encryption disabled)\n", ip_addr_remote);
+                if(magic->magic != DM_PAYLOAD_MAGIC) {
+                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Decryption fail! (remote-ip: %s)\n", ip_addr_remote);
+                    goto sleep;
                 }
             }
 
             /* payload */
-            if(phdr_ptr->payload_type == DM_PAYLOAD_AUDIO) {
-                ahdr_ptr = (void *)(recv_buffer + sizeof(*phdr_ptr));
-                paylod_data_ptr = (void *)(recv_buffer + sizeof(*phdr_ptr) + sizeof(*ahdr_ptr));
+            if(pkt_hdr_ptr->payload_type == DM_PAYLOAD_AUDIO) {
+                dm_payload_audio_hdr_t *au_hdr_ptr = (void *)(recv_buffer + sizeof(*pkt_hdr_ptr));
+                switch_byte_t *paylod_data_ptr = (void *)(recv_buffer + sizeof(*pkt_hdr_ptr) + sizeof(*au_hdr_ptr));
 
-                if(ahdr_ptr->magic == DM_PAYLOAD_MAGIC) {
-                    if(ahdr_ptr->data_len && ahdr_ptr->data_len < AUDIO_BUFFER_SIZE) {
-                        conference = conference_lookup_by_id(ahdr_ptr->conference_id);
-                        if(conference_sem_take(conference)) {
-                            audio_tranfser_buffer_t *atbuf = NULL;
-                            audio_tranfser_buffer_alloc(&atbuf, paylod_data_ptr, ahdr_ptr->data_len);
+                if(au_hdr_ptr->data_len && au_hdr_ptr->data_len < AUDIO_BUFFER_SIZE) {
+                    conference = conference_lookup_by_id(au_hdr_ptr->conference_id);
+                    if(conference_sem_take(conference)) {
+                        audio_tranfser_buffer_t *atbuf = NULL;
+                        audio_tranfser_buffer_alloc(&atbuf, paylod_data_ptr, au_hdr_ptr->data_len);
 
-                            atbuf->conference_id = ahdr_ptr->conference_id;
-                            atbuf->samplerate = ahdr_ptr->samplerate;
-                            atbuf->channels = ahdr_ptr->channels;
-                            atbuf->id = phdr_ptr->packet_id;
+                        atbuf->conference_id = au_hdr_ptr->conference_id;
+                        atbuf->samplerate = au_hdr_ptr->samplerate;
+                        atbuf->channels = au_hdr_ptr->channels;
+                        atbuf->id = pkt_hdr_ptr->packet_id;
 
-                            if(switch_queue_trypush(conference->audio_q_in, atbuf) != SWITCH_STATUS_SUCCESS) {
-                                audio_tranfser_buffer_free(atbuf);
-                            }
-                            conference_sem_release(conference);
+                        if(switch_queue_trypush(conference->audio_q_in, atbuf) != SWITCH_STATUS_SUCCESS) {
+                            audio_tranfser_buffer_free(atbuf);
                         }
+
+                        conference_sem_release(conference);
                     }
-                } else {
-                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Decryption fail! (ip: %s)\n", ip_addr_remote);
+                }
+            } else if(pkt_hdr_ptr->payload_type == DM_PAYLOAD_ANY) {
+                dm_payload_any_hdr_t *any_hdr_ptr = (void *)(recv_buffer + sizeof(*pkt_hdr_ptr));
+                switch_byte_t *paylod_data_ptr = (void *)(recv_buffer + sizeof(*pkt_hdr_ptr) + sizeof(*any_hdr_ptr));
+
+                conference = conference_lookup_by_id(any_hdr_ptr->conference_id);
+                if(conference_sem_take(conference)) {
+                    common_queue_entry_t *entry = NULL;
+
+                    common_queue_entry_alloc(&entry, any_hdr_ptr->conference_id, any_hdr_ptr->type, paylod_data_ptr, any_hdr_ptr->len);
+                    if(switch_queue_trypush(conference->common_q_in, entry) != SWITCH_STATUS_SUCCESS) {
+                        common_queue_entry_free(entry);
+                    }
+                    conference_sem_release(conference);
                 }
             }
         }
@@ -1225,10 +1514,10 @@ out:
         const void *hvar = NULL; void *hval = NULL;
         for (hidx = switch_core_hash_first_iter(nodes_stats_map, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
             switch_core_hash_this(hidx, &hvar, NULL, &hval);
-            node_stat = (node_stat_t *)hval;
-            if(node_stat) {
-                switch_core_inthash_delete(nodes_stats_map, node_stat->node);
-                switch_safe_free(node_stat);
+            node_rtp_status = (node_rtp_status_t *)hval;
+            if(node_rtp_status) {
+                switch_core_inthash_delete(nodes_stats_map, node_rtp_status->node_id);
+                switch_safe_free(node_rtp_status);
             }
         }
         switch_safe_free(hidx);
@@ -1259,12 +1548,12 @@ static void event_handler_shutdown(switch_event_t *event) {
  "list - show all active conferences\n" \
  "dm-flush-status-cache - flush server status cache\n" \
  "<confname> term - terminate conferece\n" \
- "<confname> show [status|groups|members]\n" \
- "<confname> playback [stop] filename [async]\n" \
- "<confname> flags [+-][trans-audio|trans-video|video|asnd|vad|cng|agc]\n" \
+ "<confname> show [status|groups|members|nodes]\n" \
+ "<confname> playback [stop] [filename [async]]\n" \
+ "<confname> flags [+-][trancoding|dm-status|alone-snd|vad|cng|agc]\n" \
  "<confname> member <uuid> kick\n" \
  "<confname> member <uuid> status\n" \
- "<confname> member <uuid> playback [stop] filename [async]\n" \
+ "<confname> member <uuid> playback [stop] [filename [async]]\n" \
  "<confname> member <uuid> set agc level:lowlevel:factor:margin\n" \
  "<confname> member <uuid> flags [+-][speaker|admin|auth|mute|deaf|vad|agc|cng]\n"
 
@@ -1418,6 +1707,36 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
             stream->write_function(stream, "total: %i\n", total);
             goto out;
         }
+        if(strcasecmp(what_name, "nodes") == 0) {
+            switch_hash_index_t *hidx = NULL;
+            void *hval = NULL;
+            uint32_t total = 0;
+
+            if(!globals.fl_dm_enabled) {
+                stream->write_function(stream, "dm disabled\n");
+                goto out;
+            }
+
+            stream->write_function(stream, "conference nodes:\n", globals.dm_node_id);
+            if(conference_sem_take(conference)) {
+                stream->write_function(stream, "%X [members:%i, speakers: %i, updated: %i sec ago] (this)\n", globals.dm_node_id, conference->members_local, conference->speakers_local, 0);
+                switch_mutex_lock(conference->mutex_dm_nodes_map);
+                for(hidx = switch_core_hash_first_iter(conference->dm_nodes_map, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
+                    node_conference_status_t *status = NULL;
+
+                    switch_core_hash_this(hidx, NULL, NULL, &hval);
+                    status = (node_conference_status_t *) hval;
+
+                    if(status) {
+                        stream->write_function(stream, "%X [members:%i, speakers: %i, updated: %i sec ago]\n", status->node_id,  status->members, status->speakers, (int)(switch_epoch_time_now(NULL) - status->updated));
+                    }
+                }
+                switch_mutex_unlock(conference->mutex_dm_nodes_map);
+                conference_sem_release(conference);
+            }
+            stream->write_function(stream, "total: %i\n", total);
+            goto out;
+        }
         goto usage;
     }
     /* playback a file in the conference */
@@ -1568,7 +1887,7 @@ out:
     return SWITCH_STATUS_SUCCESS;
 }
 
-#define APP_SYNTAX "confName profileName [+-][trans-audio|trans-video|video|asnd|vad|cng|agc]"
+#define APP_SYNTAX "confName profileName [+-][transcoding|dm-status|alone-snd|vad|cng|agc]"
 SWITCH_STANDARD_APP(xconf_app_api) {
     switch_status_t status = SWITCH_STATUS_SUCCESS;
     switch_channel_t *channel = switch_core_session_get_channel(session);
@@ -1644,12 +1963,17 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         switch_mutex_init(&conference->mutex_speakers, SWITCH_MUTEX_NESTED, pool_tmp);
         switch_mutex_init(&conference->mutex_flags, SWITCH_MUTEX_NESTED, pool_tmp);
         switch_mutex_init(&conference->mutex_playback, SWITCH_MUTEX_NESTED, pool_tmp);
-        switch_queue_create(&conference->commands_q_in, globals.local_queue_size, pool_tmp);
+        switch_mutex_init(&conference->mutex_dm_status, SWITCH_MUTEX_NESTED, pool_tmp);
+        switch_mutex_init(&conference->mutex_dm_nodes_map, SWITCH_MUTEX_NESTED, pool_tmp);
+
+        switch_queue_create(&conference->common_q_in, globals.local_queue_size, pool_tmp);
         switch_queue_create(&conference->audio_q_in, globals.local_queue_size, pool_tmp);
         switch_queue_create(&conference->audio_mix_q_in, globals.local_queue_size, pool_tmp);
         switch_queue_create(&conference->audio_q_out, globals.local_queue_size, pool_tmp);
+
         switch_core_inthash_init(&conference->speakers);
         switch_core_inthash_init(&conference->listeners);
+        switch_core_inthash_init(&conference->dm_nodes_map);
         switch_core_hash_init(&conference->members_idx_hash);
 
         conference->id = conference_id;
@@ -1681,8 +2005,6 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         conference->sound_moh = conf_profile->sound_moh;
         conference->sound_enter_pin_code = conf_profile->sound_enter_pin_code;
         conference->sound_bad_pin_code = conf_profile->sound_bad_pin_code;
-        conference->sound_member_join = conf_profile->sound_member_join;
-        conference->sound_member_leave = conf_profile->sound_member_leave;
         conference->sound_member_welcome = conf_profile->sound_member_welcome;
         conference->sound_member_bye = conf_profile->sound_member_bye;
         conference->sound_member_alone = conf_profile->sound_member_alone;
@@ -1698,9 +2020,9 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             conference_parse_agc_data(conference, conf_profile->agc_data);
         }
 
-        conference_flag_set(conference, CF_AUDIO_TRANSCODE, conf_profile->audio_transcode_enabled);
-        conference_flag_set(conference, CF_VIDEO_TRANSCODE, conf_profile->video_transcode_enabled);
-        conference_flag_set(conference, CF_ALONE_SOUND, conf_profile->alone_sound_enabled);
+        conference_flag_set(conference, CF_TRANSCODING, conf_profile->transcoding_enabled);
+        conference_flag_set(conference, CF_USE_ALONE_SOUND, conf_profile->alone_sound_enabled);
+        conference_flag_set(conference, CF_USE_DM_STATUS, conf_profile->dm_status_enabled);
         conference_flag_set(conference, CF_USE_AUTH, conf_profile->pin_auth_enabled);
         conference_flag_set(conference, CF_USE_VAD, conf_profile->vad_enabled);
         conference_flag_set(conference, CF_USE_AGC, conf_profile->agc_enabled);
@@ -1897,41 +2219,47 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             fl_play_welcome = false;
         }
 
-        /* alone sound */
-        if(conference_flag_test(conference, CF_ALONE_SOUND)) {
-            if(conference->members_local == 1) {
-                if(globals.fl_dm_enabled) {
-                    if(conference->members_total <= 1) {
-                        if(fl_play_alone) {
-                            member_playback(member, conference->sound_member_alone, false, NULL, 0);
-                            member_playback(member, conference->sound_moh, true, NULL, 0);
-                            moh_check_timer = (switch_epoch_time_now(NULL) + MEMBER_MOH_CHECK_INTERVAL);
-                            fl_play_alone = false;
-                        }
-                    }
-                } else {
+        /* alone sound && moh */
+        if(conference_flag_test(conference, CF_USE_ALONE_SOUND)) {
+            if(globals.fl_dm_enabled) {
+                if(conference->fl_total_synced && conference->members_total <= 1) {
                     if(fl_play_alone) {
                         member_playback(member, conference->sound_member_alone, false, NULL, 0);
                         member_playback(member, conference->sound_moh, true, NULL, 0);
                         moh_check_timer = (switch_epoch_time_now(NULL) + MEMBER_MOH_CHECK_INTERVAL);
                         fl_play_alone = false;
                     }
-                }
-                if(!fl_play_alone && (moh_check_timer > 0 && moh_check_timer <= switch_epoch_time_now(NULL))) {
-                    if(!zstr(conference->sound_moh)) {
-                        if(!member_flag_test(member, MF_PLAYBACK)) {
-                            fl_play_alone = true;
-                        } else {
-                            moh_check_timer = (switch_epoch_time_now(NULL) + MEMBER_MOH_CHECK_INTERVAL);
-                        }
+                } else {
+                    if(!fl_play_alone) {
+                        member_playback_stop(member);
                     }
+                    moh_check_timer = 0;
+                    fl_play_alone = true;
                 }
             } else {
-                if(!fl_play_alone) {
-                    member_playback_stop(member);
+                if(conference->members_local == 1) {
+                    if(fl_play_alone) {
+                        member_playback(member, conference->sound_member_alone, false, NULL, 0);
+                        member_playback(member, conference->sound_moh, true, NULL, 0);
+                        moh_check_timer = (switch_epoch_time_now(NULL) + MEMBER_MOH_CHECK_INTERVAL);
+                        fl_play_alone = false;
+                    }
+                } else {
+                    if(!fl_play_alone) {
+                        member_playback_stop(member);
+                    }
+                    moh_check_timer = 0;
+                    fl_play_alone = true;
                 }
-                moh_check_timer = 0;
-                fl_play_alone = true;
+            }
+            if(!fl_play_alone && (moh_check_timer && moh_check_timer <= switch_epoch_time_now(NULL))) {
+                if(!zstr(conference->sound_moh)) {
+                    if(!member_flag_test(member, MF_PLAYBACK)) {
+                        fl_play_alone = true;
+                    } else {
+                        moh_check_timer = (switch_epoch_time_now(NULL) + MEMBER_MOH_CHECK_INTERVAL);
+                    }
+                }
             }
         }
 
@@ -2320,10 +2648,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             }
 
             conf_profile->name = switch_core_strdup(pool, name);
-            conf_profile->audio_transcode_enabled = true;
-            conf_profile->video_transcode_enabled = true;
+            conf_profile->transcoding_enabled = true;
             conf_profile->pin_auth_enabled = false;
             conf_profile->alone_sound_enabled = true;
+            conf_profile->dm_status_enabled = true;
             conf_profile->vad_enabled = false;
             conf_profile->cng_enabled = false;
             conf_profile->agc_enabled = false;
@@ -2336,20 +2664,21 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             conf_profile->cng_level = 0;
             conf_profile->vad_level = 0;
 
+
             for (param = switch_xml_child(conf_profile_xml, "param"); param; param = param->next) {
                 char *var = (char *) switch_xml_attr_soft(param, "name");
                 char *val = (char *) switch_xml_attr_soft(param, "value");
 
-                if(!strcasecmp(var, "audio-transcode-enable")) {
-                    conf_profile->audio_transcode_enabled = (strcasecmp(val, "true") == 0 ? true : false);
-                } else if(!strcasecmp(var, "video-transcode-enable")) {
-                    conf_profile->video_transcode_enabled = (strcasecmp(val, "true") == 0 ? true : false);
+                if(!strcasecmp(var, "transcoding-enable")) {
+                    conf_profile->transcoding_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "allow-video")) {
                     conf_profile->allow_video = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "alone-sound-enable")) {
                     conf_profile->alone_sound_enabled = (strcasecmp(val, "true") == 0 ? true : false);
-                } else if(!strcasecmp(var, "conference-term-timer")) {
-                    conf_profile->conf_term_timer = atoi(val);
+                } else if(!strcasecmp(var, "alone-sound-enable")) {
+                    conf_profile->alone_sound_enabled = (strcasecmp(val, "true") == 0 ? true : false);
+                } else if(!strcasecmp(var, "dm-status-enable")) {
+                    conf_profile->dm_status_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "group-term-timer")) {
                     conf_profile->group_term_timer = atoi(val);
                 } else if(!strcasecmp(var, "samplerate")) {
@@ -2358,6 +2687,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                     conf_profile->channels = atoi(val);
                 } else if(!strcasecmp(var, "ptime")) {
                     conf_profile->ptime = atoi(val);
+                } else if(!strcasecmp(var, "conference-term-timer")) {
+                    conf_profile->conf_term_timer = atoi(val);
+                } else if(!strcasecmp(var, "group-term-timer")) {
+                    conf_profile->group_term_timer = atoi(val);
                 } else if(!strcasecmp(var, "admin-controls")) {
                     conf_profile->admin_controls = switch_core_strdup(pool, val);
                 } else if(!strcasecmp(var, "user-controls")) {
@@ -2388,10 +2721,6 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                     conf_profile->sound_enter_pin_code = switch_core_strdup(pool, val);
                 } else if(!strcasecmp(var, "sound-bad-pin-code")) {
                     conf_profile->sound_bad_pin_code = switch_core_strdup(pool, val);
-                } else if(!strcasecmp(var, "sound-member-join")) {
-                    conf_profile->sound_member_join = switch_core_strdup(pool, val);
-                } else if(!strcasecmp(var, "sound-member-leave")) {
-                    conf_profile->sound_member_leave = switch_core_strdup(pool, val);
                 } else if(!strcasecmp(var, "sound-member-welcome")) {
                     conf_profile->sound_member_welcome = switch_core_strdup(pool, val);
                 } else if(!strcasecmp(var, "sound-member-bye")) {
@@ -2505,9 +2834,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
         if(sys_uuid) { globals.dm_node_id = make_id(sys_uuid, strlen(sys_uuid)); }
 
         switch_queue_create(&globals.dm_audio_queue_out, globals.dm_queue_size, pool);
-        switch_queue_create(&globals.dm_command_queue_out, globals.dm_queue_size, pool);
+        switch_queue_create(&globals.dm_common_queue_out, globals.dm_queue_size, pool);
 
-        launch_thread(pool, dm_client_thread, NULL);
+        launch_thread(pool, dm_client_thread_any, NULL);
+        launch_thread(pool, dm_client_thread_audio, NULL);
         launch_thread(pool, dm_server_thread, NULL);
     }
 
@@ -2550,8 +2880,8 @@ SWITCH_MODULE_SHUTDOWN_FUNCTION(mod_xconf_shutdown) {
         if(globals.dm_audio_queue_out) {
             flush_audio_queue(globals.dm_audio_queue_out);
         }
-        if(globals.dm_command_queue_out) {
-            flush_commands_queue(globals.dm_command_queue_out);
+        if(globals.dm_common_queue_out) {
+            flush_common_queue(globals.dm_common_queue_out);
         }
     }
 

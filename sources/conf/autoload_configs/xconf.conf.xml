@@ -38,8 +38,7 @@
             <param name="channels" value="1"/>
             <param name="conference-term-timer" value="0"/>
             <param name="group-term-timer" value="0"/>
-            <param name="audio-transcode-enable" value="true"/>
-            <param name="video-transcode-enable" value="true"/>
+            <param name="trancoding-enable" value="true"/>
             <param name="allow-video" value="true"/>
             <param name="vad-enable" value="true"/>
             <param name="vad-level" value="300"/>
@@ -50,6 +49,7 @@
             <param name="admin-controls" value="default"/>
             <param name="user-controls" value="default"/>
             <param name="alone-sound-enable" value="true"/>
+            <param name="dm-status-enable" value="true"/>
 
             <param name="pin-auth-enable" value="false"/>
             <param name="admin-pin-code" value="123"/>

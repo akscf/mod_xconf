@@ -23,7 +23,7 @@
 #define BIT_CHECK(a,b) (!!((a) & (1UL<<(b))))
 
 #define AUDIO_BUFFER_SIZE                       2048 // SWITCH_RECOMMENDED_BUFFER_SIZE
-#define XCONF_VERSION                           "1.7"
+#define XCONF_VERSION                           "1.7-RC1"
 #define NET_ANYADDR                             "0.0.0.0"
 #define DTMF_CMD_MAX_LEN                        10
 #define DTMF_CMD_BUFFER_SIZE                    DTMF_CMD_MAX_LEN + 1
@@ -36,9 +36,7 @@
 #define VAD_HITS_HALF                           (VAD_HITS_MAX / 2)
 
 #define DM_PAYLOAD_AUDIO                        0xA0
-#define DM_PAYLOAD_VIDEO                        0xA1
-#define DM_PAYLOAD_EVENT                        0xA2
-#define DM_PAYLOAD_COMMAND                      0xA3
+#define DM_PAYLOAD_ANY                          0xA1
 #define DM_PAYLOAD_MAGIC                        0xFADEDAF0
 #define DM_MAX_NODES                            32
 #define DM_NODE_LIFETIME                        15  // sec
@@ -50,17 +48,21 @@
 #define DM_MODE_P2P                             2   // point-to-point
 #define DM_SALT_SIZE                            16
 #define DM_SALT_LIFE_TIME                       900 // sec
+#define DM_CONF_STATUS_UPDATE_INTERVAL          10  // sec
+#define DM_CONF_STATUS_SEND_INTERVAL            10  // sec
+
+#define CQE_TYPE_CONF_STATUS                    0x01
 
 #define DMPF_ENCRYPTED                          0x00
 
-#define CF_AUDIO_TRANSCODE                      0x00
-#define CF_VIDEO_TRANSCODE                      0x01
+#define CF_TRANSCODING                          0x00
+#define CF_ALLOW_VIDEO                          0x01
 #define CF_USE_VAD                              0x02
 #define CF_USE_CNG                              0x03
 #define CF_USE_AGC                              0x04
 #define CF_USE_AUTH                             0x05
-#define CF_ALLOW_VIDEO                          0x06
-#define CF_ALONE_SOUND                          0x07
+#define CF_USE_ALONE_SOUND                      0x06
+#define CF_USE_DM_STATUS                        0x07
 #define CF_HAS_MIX                              0x1E
 #define CF_PLAYBACK                             0x1F
 
@@ -91,7 +93,7 @@ typedef struct {
     uint8_t                 fl_shutdown;
     //
     switch_queue_t          *dm_audio_queue_out;
-    switch_queue_t          *dm_command_queue_out;
+    switch_queue_t          *dm_common_queue_out;
     char                    *dm_mode_name;
     char                    *dm_local_ip;
     char                    *dm_remote_ip;
@@ -162,7 +164,7 @@ typedef struct {
     controls_profile_t      *admin_controls;        //
     controls_profile_t      *user_controls;         //
     switch_file_handle_t    *playback_handle;       //
-    char                    *playback_filename;     //
+    char                    *playback_filename;     // unsafe
     //
     uint32_t                au_buffer_id;           //
     uint32_t                au_data_len;            //
@@ -191,6 +193,7 @@ typedef struct {
     uint8_t                 fl_ready;               //
     uint8_t                 fl_destroyed;           //
     uint8_t                 fl_do_destroy;          //
+    uint8_t                 fl_total_synced;        //
     uint32_t                flags;                  //
     uint32_t                members_total;          //
     uint32_t                speakers_total;         //
@@ -219,8 +222,6 @@ typedef struct {
     char                    *sound_moh;
     char                    *sound_enter_pin_code;
     char                    *sound_bad_pin_code;
-    char                    *sound_member_join;
-    char                    *sound_member_leave;
     char                    *sound_member_welcome;
     char                    *sound_member_bye;
     char                    *sound_member_alone;
@@ -241,19 +242,21 @@ typedef struct {
     switch_mutex_t          *mutex_listeners;       //
     switch_mutex_t          *mutex_speakers;        //
     switch_mutex_t          *mutex_playback;        //
+    switch_mutex_t          *mutex_dm_status;       //
+    switch_mutex_t          *mutex_dm_nodes_map;    //
+    //
     switch_inthash_t        *listeners;             // (member_group_t)
     switch_inthash_t        *speakers;              // (member_t)
     switch_hash_t           *members_idx_hash;      //
-    switch_queue_t          *commands_q_in;         // (audio_tranfser_buffer_t)
+    switch_queue_t          *common_q_in;           // (common_queue_entry_t)
     switch_queue_t          *audio_q_in;            // (audio_tranfser_buffer_t)
     switch_queue_t          *audio_mix_q_in;        // (audio_tranfser_buffer_t)
     switch_queue_t          *audio_q_out;           // (audio_tranfser_buffer_t)
     controls_profile_t      *admin_controls;        //
     controls_profile_t      *user_controls;         //
     switch_file_handle_t    *playback_handle;       //
-    char                    *playback_filename;     //
-//    switch_mutex_t          *mutex_nodes_map;
-//    switch_inthash_t        *nodes_map;
+    char                    *playback_filename;     // unsafe
+    switch_inthash_t        *dm_nodes_map;          // node-id  => node_conference_status_t
 } conference_t;
 
 typedef struct {
@@ -269,8 +272,6 @@ typedef struct {
     char                    *sound_moh;
     char                    *sound_enter_pin_code;
     char                    *sound_bad_pin_code;
-    char                    *sound_member_join;
-    char                    *sound_member_leave;
     char                    *sound_member_welcome;
     char                    *sound_member_bye;
     char                    *sound_member_alone;
@@ -295,10 +296,10 @@ typedef struct {
     uint8_t                 cng_enabled;
     uint8_t                 agc_enabled;
     uint8_t                 pin_auth_enabled;
-    uint8_t                 audio_transcode_enabled;
-    uint8_t                 video_transcode_enabled;
+    uint8_t                 transcoding_enabled;
     uint8_t                 allow_video;
     uint8_t                 alone_sound_enabled;
+    uint8_t                 dm_status_enabled;
 } conference_profile_t;
 
 typedef struct {
@@ -319,10 +320,26 @@ typedef struct {
 } audio_cache_t;
 
 typedef struct {
-    uint32_t                node;
-    uint32_t                last_id;
+    uint32_t                node_id;
+    uint32_t                media_packet_id;
+    uint32_t                any_packet_id;
     time_t                  expiry;
-} node_stat_t;
+} node_rtp_status_t;
+
+typedef struct {
+    uint32_t                node_id;
+    uint32_t                members;
+    uint32_t                speakers;
+    time_t                  updated;
+    time_t                  expiry;
+} node_conference_status_t;
+
+typedef struct {
+    uint32_t                conference_id;
+    uint32_t                type;
+    uint32_t                data_len;
+    void                    *data;
+} common_queue_entry_t;
 
 typedef struct {
     uint32_t                node_id;
@@ -334,6 +351,11 @@ typedef struct {
     uint8_t                 auth_hash[SWITCH_MD5_DIGEST_STRING_SIZE];
 } dm_packet_hdr_t;
 
+/* helper type */
+typedef struct {
+    uint32_t                magic;
+} dm_payload_magic_hdr_t;
+
 typedef struct {
     uint32_t                magic;
     uint32_t                conference_id;
@@ -341,6 +363,13 @@ typedef struct {
     uint16_t                channels;
     uint16_t                data_len;
 } dm_payload_audio_hdr_t;
+
+typedef struct {
+    uint32_t                magic;
+    uint32_t                conference_id;
+    uint16_t                type;
+    uint16_t                len;
+} dm_payload_any_hdr_t;
 
 /* main */
 void launch_thread(switch_memory_pool_t *pool, switch_thread_start_t fun, void *data);
@@ -402,8 +431,12 @@ uint32_t dm_server_clean_nodes_status_cache(switch_inthash_t *nodes_map, uint8_t
 switch_status_t audio_tranfser_buffer_alloc(audio_tranfser_buffer_t **out, switch_byte_t *data, uint32_t data_len);
 switch_status_t audio_tranfser_buffer_clone(audio_tranfser_buffer_t **dst, audio_tranfser_buffer_t *src);
 void audio_tranfser_buffer_free(audio_tranfser_buffer_t *buf);
+
+switch_status_t common_queue_entry_alloc(common_queue_entry_t **out, uint32_t conference_id, uint32_t type, switch_byte_t *data, uint32_t data_len);
+void common_queue_entry_free(common_queue_entry_t *entry);
+
 void flush_audio_queue(switch_queue_t *queue);
-void flush_commands_queue(switch_queue_t *queue);
+void flush_common_queue(switch_queue_t *queue);
 
 
 

@@ -159,12 +159,12 @@ switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, 
 
     switch_assert(conference);
 
-    if(strcasecmp(fl_name, "trans-audio") == 0) {
-        conference_flag_set(conference, CF_AUDIO_TRANSCODE, fl_op);
-    } else if(strcasecmp(fl_name, "trans-video") == 0) {
-        conference_flag_set(conference, CF_VIDEO_TRANSCODE, fl_op);
-    } else if(strcasecmp(fl_name, "asnd") == 0) {
-        conference_flag_set(conference, CF_ALONE_SOUND, fl_op);
+    if(strcasecmp(fl_name, "trancoding") == 0) {
+        conference_flag_set(conference, CF_TRANSCODING, fl_op);
+    } else if(strcasecmp(fl_name, "dm-status") == 0) {
+        conference_flag_set(conference, CF_USE_DM_STATUS, fl_op);
+    } else if(strcasecmp(fl_name, "alone-snd") == 0) {
+        conference_flag_set(conference, CF_USE_ALONE_SOUND, fl_op);
     } else if(strcasecmp(fl_name, "video") == 0) {
         conference_flag_set(conference, CF_ALLOW_VIDEO, fl_op);
     } else if(strcasecmp(fl_name, "vad") == 0) {
@@ -227,10 +227,10 @@ void conference_dump_status(conference_t *conference, switch_stream_handle_t *st
     stream->write_function(stream, "Playback status..........: %s\n", conference_flag_test(conference, CF_PLAYBACK) ? "active" : "stopped");
     stream->write_function(stream, "Access mode..............: %s\n", conference_flag_test(conference, CF_USE_AUTH) ? "by pin" : "free");
     stream->write_function(stream, "flags....................: ---------\n");
-    stream->write_function(stream, "  - audio trancode.......: %s\n", conference_flag_test(conference, CF_AUDIO_TRANSCODE) ? "on" : "off");
-    stream->write_function(stream, "  - video trancode.......: %s\n", conference_flag_test(conference, CF_VIDEO_TRANSCODE) ? "on" : "off");
+    stream->write_function(stream, "  - trancoding...........: %s\n", conference_flag_test(conference, CF_TRANSCODING) ? "on" : "off");
     stream->write_function(stream, "  - allow video..........: %s\n", conference_flag_test(conference, CF_ALLOW_VIDEO) ? "on" : "off");
-    stream->write_function(stream, "  - alone sound..........: %s\n", conference_flag_test(conference, CF_ALONE_SOUND) ? "on" : "off");
+    stream->write_function(stream, "  - alone sound..........: %s\n", conference_flag_test(conference, CF_USE_ALONE_SOUND) ? "on" : "off");
+    stream->write_function(stream, "  - dm status............: %s\n", conference_flag_test(conference, CF_USE_DM_STATUS) ? "on" : "off");
     stream->write_function(stream, "  - vad..................: %s\n", conference_flag_test(conference, CF_USE_VAD) ? "on" : "off");
     stream->write_function(stream, "  - cng..................: %s\n", conference_flag_test(conference, CF_USE_CNG) ? "on" : "off");
     stream->write_function(stream, "  - agc..................: %s\n", conference_flag_test(conference, CF_USE_AGC) ? "on" : "off");
@@ -458,6 +458,30 @@ void audio_tranfser_buffer_free(audio_tranfser_buffer_t *buf) {
         switch_safe_free(buf);
     }
 }
+// ---------------------------------------------------------------------------------------------------------------------------------------------------
+switch_status_t common_queue_entry_alloc(common_queue_entry_t **out, uint32_t conference_id, uint32_t type, switch_byte_t *data, uint32_t data_len) {
+    common_queue_entry_t *entry = NULL;
+
+    switch_zmalloc(entry, sizeof(common_queue_entry_t));
+    entry->conference_id = conference_id;
+    entry->type = type;
+
+    if(data_len) {
+        switch_malloc(entry->data, data_len);
+        entry->data_len = data_len;
+        memcpy(entry->data, data, data_len);
+    }
+
+    *out = entry;
+    return SWITCH_STATUS_SUCCESS;
+}
+
+void common_queue_entry_free(common_queue_entry_t *entry) {
+    if(entry) {
+        switch_safe_free(entry->data);
+        switch_safe_free(entry);
+    }
+}
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------
 inline int dm_packet_flag_test(dm_packet_hdr_t *packet, int flag) {
@@ -476,7 +500,7 @@ inline void dm_packet_flag_set(dm_packet_hdr_t *packet, int flag, int val) {
 
 uint32_t dm_server_clean_nodes_status_cache(switch_inthash_t *nodes_map, uint8_t flush_all) {
     switch_hash_index_t *hidx = NULL;
-    node_stat_t *node_stat = NULL;
+    node_rtp_status_t *status = NULL;
     uint32_t del_count = 0;
     const void *hvar = NULL;
     void *hval = NULL;
@@ -486,10 +510,10 @@ uint32_t dm_server_clean_nodes_status_cache(switch_inthash_t *nodes_map, uint8_t
     if(flush_all) {
         for (hidx = switch_core_hash_first_iter(nodes_map, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
             switch_core_hash_this(hidx, &hvar, NULL, &hval);
-            node_stat = (node_stat_t *) hval;
-            if(node_stat) {
-                switch_core_inthash_delete(nodes_map, node_stat->node);
-                switch_safe_free(node_stat);
+            status = (node_rtp_status_t *) hval;
+            if(status) {
+                switch_core_inthash_delete(nodes_map, status->node_id);
+                switch_safe_free(status);
                 del_count++;
             }
         }
@@ -497,10 +521,10 @@ uint32_t dm_server_clean_nodes_status_cache(switch_inthash_t *nodes_map, uint8_t
         time_t ts = switch_epoch_time_now(NULL);
         for (hidx = switch_core_hash_first_iter(nodes_map, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
             switch_core_hash_this(hidx, &hvar, NULL, &hval);
-            node_stat = (node_stat_t *) hval;
-            if(node_stat && node_stat->expiry < ts) {
-                switch_core_inthash_delete(nodes_map, node_stat->node);
-                switch_safe_free(node_stat);
+            status = (node_rtp_status_t *) hval;
+            if(status && status->expiry < ts) {
+                switch_core_inthash_delete(nodes_map, status->node_id);
+                switch_safe_free(status);
                 del_count++;
             }
         }
@@ -522,7 +546,7 @@ void flush_audio_queue(switch_queue_t *queue) {
     }
 }
 
-void flush_commands_queue(switch_queue_t *queue) {
+void flush_common_queue(switch_queue_t *queue) {
     void *data = NULL;
 
     if(!queue || !switch_queue_size(queue)) {
@@ -530,7 +554,11 @@ void flush_commands_queue(switch_queue_t *queue) {
     }
     while(switch_queue_trypop(queue, &data) == SWITCH_STATUS_SUCCESS) {
         if(data) {
-            //
+            common_queue_entry_t *e = (common_queue_entry_t *) data;
+            if(e) {
+                switch_safe_free(e->data);
+                switch_safe_free(e);
+            }
         }
     }
 }
