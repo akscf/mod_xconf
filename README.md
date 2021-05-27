@@ -17,7 +17,6 @@
  
 # ToDo
 - close parts with 'todo' label
-- simple balancer (?)
 
 # Performance tests
 ```
