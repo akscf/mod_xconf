@@ -13,7 +13,7 @@
  - protection throug PIN code (conference, admin/user access)
  - sound playback function for member/conference
  - speakers limit: 25-50 per instance
- - listenes limit: 2000-5000 per instance (low/middle cost vm) / summary upper limit is: 100-200k
+ - listeners limit: 2000-5000 per instance (low/middle cost vm) / summary upper limit is: 100-200k
  
 # ToDo
 - close parts with 'todo' label
