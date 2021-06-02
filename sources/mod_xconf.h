@@ -45,24 +45,21 @@
 #define DM_IO_BUFFER_SIZE                       4096
 #define DM_MULTICAST_TTL                        1
 #define DM_MODE_MILTICAST                       1
-#define DM_MODE_P2P                             2   // point-to-point
+#define DM_MODE_UNICAST                         2
 #define DM_SALT_SIZE                            16
 #define DM_SALT_LIFE_TIME                       900 // sec
-#define DM_CONF_STATUS_UPDATE_INTERVAL          10  // sec
-#define DM_CONF_STATUS_SEND_INTERVAL            10  // sec
 
 #define CQE_TYPE_CONF_STATUS                    0x01
 
 #define DMPF_ENCRYPTED                          0x00
 
 #define CF_TRANSCODING                          0x00
-#define CF_ALLOW_VIDEO                          0x01
-#define CF_USE_VAD                              0x02
-#define CF_USE_CNG                              0x03
-#define CF_USE_AGC                              0x04
-#define CF_USE_AUTH                             0x05
-#define CF_USE_ALONE_SOUND                      0x06
-#define CF_USE_DM_STATUS                        0x07
+#define CF_USE_VAD                              0x01
+#define CF_USE_CNG                              0x02
+#define CF_USE_AGC                              0x03
+#define CF_USE_AUTH                             0x04
+#define CF_USE_ALONE_SOUND                      0x05
+#define CF_STATUS_EXCHANGE                      0x06
 #define CF_HAS_MIX                              0x1E
 #define CF_PLAYBACK                             0x1F
 
@@ -104,6 +101,8 @@ typedef struct {
     uint32_t                dm_port_in;
     uint32_t                dm_port_out;
     uint32_t                dm_queue_size;
+    uint32_t                dm_status_exchange_interval;       // seconds
+    uint32_t                dm_status_update_interval;         // seconds
     uint8_t                 fl_dm_enabled;
     uint8_t                 fl_dm_auth_enabled;
     uint8_t                 fl_dm_encrypt_payload;
@@ -288,8 +287,8 @@ typedef struct {
     uint32_t                samplerate;
     uint32_t                channels;
     uint32_t                ptime;
-    uint32_t                conf_term_timer;          // seconds
-    uint32_t                group_term_timer;         // seconds
+    uint32_t                conf_term_timer;                // seconds
+    uint32_t                group_term_timer;               // seconds
     int32_t                 vad_level;
     int32_t                 cng_level;
     uint8_t                 vad_enabled;
@@ -297,9 +296,8 @@ typedef struct {
     uint8_t                 agc_enabled;
     uint8_t                 pin_auth_enabled;
     uint8_t                 transcoding_enabled;
-    uint8_t                 allow_video;
     uint8_t                 alone_sound_enabled;
-    uint8_t                 dm_status_enabled;
+    uint8_t                 status_exchange_enabled;
 } conference_profile_t;
 
 typedef struct {

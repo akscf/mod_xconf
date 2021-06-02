@@ -20,7 +20,7 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
 
 //---------------------------------------------------------------------------------------------------------------------------------------------------
 static inline void mix_i16(int16_t *dst, int16_t *src, uint32_t len) {
-    uint32_t i = 0;
+    uint32_t i;
     for(i = 0; i < len; i++) {
         dst[i] += src[i];
     }
@@ -760,9 +760,9 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
             }
 
             /* send status */
-            if(conference_flag_test(conference, CF_USE_DM_STATUS)) {
+            if(conference_flag_test(conference, CF_STATUS_EXCHANGE)) {
                 if(!status_send_timer) {
-                    status_send_timer = (switch_epoch_time_now(NULL) + DM_CONF_STATUS_SEND_INTERVAL);
+                    status_send_timer = (switch_epoch_time_now(NULL) + globals.dm_status_exchange_interval);
                 }
                 if(status_send_timer <= switch_epoch_time_now(NULL)) {
                     common_queue_entry_t *entry = NULL;
@@ -775,13 +775,13 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
                     if(switch_queue_trypush(globals.dm_common_queue_out, entry) != SWITCH_STATUS_SUCCESS) {
                         common_queue_entry_free(entry);
                     }
-                    status_send_timer = (switch_epoch_time_now(NULL) + DM_CONF_STATUS_SEND_INTERVAL);
+                    status_send_timer = (switch_epoch_time_now(NULL) + globals.dm_status_exchange_interval);
                 }
             }
 
             /* update counters by remote nodes */
             if(!status_update_timer) {
-                status_update_timer = (switch_epoch_time_now(NULL) + DM_CONF_STATUS_UPDATE_INTERVAL);
+                status_update_timer = (switch_epoch_time_now(NULL) + globals.dm_status_update_interval);
             }
             if(status_update_timer <= switch_epoch_time_now(NULL)) {
                 uint32_t st = conference->speakers_local;
@@ -811,7 +811,7 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
                 conference->fl_total_synced = true;
                 switch_mutex_unlock(conference->mutex_dm_status);
 
-                status_update_timer = (switch_epoch_time_now(NULL) + DM_CONF_STATUS_UPDATE_INTERVAL);
+                status_update_timer = (switch_epoch_time_now(NULL) + globals.dm_status_update_interval);
             }
         }
 
@@ -898,7 +898,7 @@ static switch_status_t init_client_socket(switch_socket_t **socket, switch_socka
         *dst_addr = taddr;
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "client socket: %s:%i (mcast-group: %s)\n", globals.dm_local_ip, globals.dm_port_out, globals.dm_multicast_group);
     }
-    if(globals.dm_mode == DM_MODE_P2P) {
+    if(globals.dm_mode == DM_MODE_UNICAST) {
         if((status = switch_sockaddr_info_get(&taddr, globals.dm_remote_ip, SWITCH_UNSPEC, globals.dm_port_out, 0, pool)) != SWITCH_STATUS_SUCCESS) {
             switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (cli) (switch_sockaddr_info_get) [#2]\n");
             goto out;
@@ -956,7 +956,7 @@ static switch_status_t init_server_socket(switch_socket_t **socket, switch_memor
         }
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "server socket: %s:%i (mcast-group: %s)\n", NET_ANYADDR, globals.dm_port_in, globals.dm_multicast_group);
     }
-    if(globals.dm_mode == DM_MODE_P2P) {
+    if(globals.dm_mode == DM_MODE_UNICAST) {
         if((status = switch_sockaddr_info_get(&loaddr, globals.dm_local_ip, SWITCH_UNSPEC, globals.dm_port_in, 0, pool)) != SWITCH_STATUS_SUCCESS) {
             switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (srv) (switch_sockaddr_info_get)\n");
             goto out;
@@ -1550,7 +1550,7 @@ static void event_handler_shutdown(switch_event_t *event) {
  "<confname> term - terminate conferece\n" \
  "<confname> show [status|groups|members|nodes]\n" \
  "<confname> playback [stop] [filename [async]]\n" \
- "<confname> flags [+-][trancoding|dm-status|alone-snd|vad|cng|agc]\n" \
+ "<confname> flags [+-][trancoding|status-xchg|alone-snd|vad|cng|agc]\n" \
  "<confname> member <uuid> kick\n" \
  "<confname> member <uuid> status\n" \
  "<confname> member <uuid> playback [stop] [filename [async]]\n" \
@@ -1887,7 +1887,7 @@ out:
     return SWITCH_STATUS_SUCCESS;
 }
 
-#define APP_SYNTAX "confName profileName [+-][transcoding|dm-status|alone-snd|vad|cng|agc]"
+#define APP_SYNTAX "confName profileName [+-][transcoding|status-xchg|alone-snd|vad|cng|agc]"
 SWITCH_STANDARD_APP(xconf_app_api) {
     switch_status_t status = SWITCH_STATUS_SUCCESS;
     switch_channel_t *channel = switch_core_session_get_channel(session);
@@ -2021,8 +2021,8 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         }
 
         conference_flag_set(conference, CF_TRANSCODING, conf_profile->transcoding_enabled);
+        conference_flag_set(conference, CF_STATUS_EXCHANGE, conf_profile->status_exchange_enabled);
         conference_flag_set(conference, CF_USE_ALONE_SOUND, conf_profile->alone_sound_enabled);
-        conference_flag_set(conference, CF_USE_DM_STATUS, conf_profile->dm_status_enabled);
         conference_flag_set(conference, CF_USE_AUTH, conf_profile->pin_auth_enabled);
         conference_flag_set(conference, CF_USE_VAD, conf_profile->vad_enabled);
         conference_flag_set(conference, CF_USE_AGC, conf_profile->agc_enabled);
@@ -2499,6 +2499,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
     globals.fl_dm_enabled = false;
     globals.fl_dm_auth_enabled = true;
     globals.fl_dm_encrypt_payload = true;
+    globals.dm_status_exchange_interval = 10;
+    globals.dm_status_update_interval = 10;
     globals.listener_group_capacity = 200;
     globals.audio_cache_size = 10; // (globals.listener_group_capacity / 2)
     globals.local_queue_size = 16;
@@ -2549,6 +2551,12 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                 globals.dm_port_in = atoi(val);
             } else if(!strcasecmp(var, "port-out")) {
                 globals.dm_port_out = atoi(val);
+            } else if(!strcasecmp(var, "status-exchange-interval")) {
+                globals.dm_status_exchange_interval = atoi(val);
+                if(globals.dm_status_exchange_interval < 1) { globals.dm_status_exchange_interval = 1; }
+            } else if(!strcasecmp(var, "status-update-interval")) {
+                globals.dm_status_update_interval = atoi(val);
+                if(globals.dm_status_update_interval < 1) { globals.dm_status_update_interval = 1; }
             }
         }
     }
@@ -2651,11 +2659,10 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             conf_profile->transcoding_enabled = true;
             conf_profile->pin_auth_enabled = false;
             conf_profile->alone_sound_enabled = true;
-            conf_profile->dm_status_enabled = true;
+            conf_profile->status_exchange_enabled = true;
             conf_profile->vad_enabled = false;
             conf_profile->cng_enabled = false;
             conf_profile->agc_enabled = false;
-            conf_profile->allow_video = false;
             conf_profile->channels = 1;
             conf_profile->ptime = 20;
             conf_profile->samplerate = 8000;
@@ -2671,14 +2678,12 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
 
                 if(!strcasecmp(var, "transcoding-enable")) {
                     conf_profile->transcoding_enabled = (strcasecmp(val, "true") == 0 ? true : false);
-                } else if(!strcasecmp(var, "allow-video")) {
-                    conf_profile->allow_video = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "alone-sound-enable")) {
                     conf_profile->alone_sound_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "alone-sound-enable")) {
                     conf_profile->alone_sound_enabled = (strcasecmp(val, "true") == 0 ? true : false);
-                } else if(!strcasecmp(var, "dm-status-enable")) {
-                    conf_profile->dm_status_enabled = (strcasecmp(val, "true") == 0 ? true : false);
+                } else if(!strcasecmp(var, "status-exchange-enable")) {
+                    conf_profile->status_exchange_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "group-term-timer")) {
                     conf_profile->group_term_timer = atoi(val);
                 } else if(!strcasecmp(var, "samplerate")) {
@@ -2794,8 +2799,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
         if(!strcasecmp(globals.dm_mode_name, "multicast")) {
             globals.dm_mode = DM_MODE_MILTICAST;
             globals.fl_dm_enabled = true;
-        } else if(!strcasecmp(globals.dm_mode_name, "p2p")) {
-            globals.dm_mode = DM_MODE_P2P;
+        } else if(!strcasecmp(globals.dm_mode_name, "unicast")) {
+            globals.dm_mode = DM_MODE_UNICAST;
             globals.fl_dm_enabled = true;
         }
 
@@ -2822,10 +2827,9 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                 switch_goto_status(SWITCH_STATUS_GENERR, done);
             }
         }
-
-        if(globals.dm_mode == DM_MODE_P2P) {
+        if(globals.dm_mode == DM_MODE_UNICAST) {
             if(!globals.dm_remote_ip) {
-                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "P2P mode requires parameter: remote-ip\n");
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Unicast mode requires parameter: remote-ip\n");
                 switch_goto_status(SWITCH_STATUS_GENERR, done);
             }
         }

@@ -161,12 +161,10 @@ switch_status_t conference_parse_flags(conference_t *conference, char *fl_name, 
 
     if(strcasecmp(fl_name, "trancoding") == 0) {
         conference_flag_set(conference, CF_TRANSCODING, fl_op);
-    } else if(strcasecmp(fl_name, "dm-status") == 0) {
-        conference_flag_set(conference, CF_USE_DM_STATUS, fl_op);
+    } else if(strcasecmp(fl_name, "status-xchg") == 0) {
+        conference_flag_set(conference, CF_STATUS_EXCHANGE, fl_op);
     } else if(strcasecmp(fl_name, "alone-snd") == 0) {
         conference_flag_set(conference, CF_USE_ALONE_SOUND, fl_op);
-    } else if(strcasecmp(fl_name, "video") == 0) {
-        conference_flag_set(conference, CF_ALLOW_VIDEO, fl_op);
     } else if(strcasecmp(fl_name, "vad") == 0) {
         conference_flag_set(conference, CF_USE_VAD, fl_op);
     } else if(strcasecmp(fl_name, "cng") == 0) {
@@ -215,8 +213,8 @@ void conference_dump_status(conference_t *conference, switch_stream_handle_t *st
     stream->write_function(stream, "Members (local/total)....: %i/%i\n", conference->members_local, conference->members_total);
     stream->write_function(stream, "Speakers (local/total)...: %i/%i\n", conference->speakers_local, conference->speakers_total);
     stream->write_function(stream, "Sounds path..............: %s\n", conference->sound_prefix_path);
-    stream->write_function(stream, "Conf term timer..........: %i sec\n", conference->conf_term_timer);
-    stream->write_function(stream, "Group term timer.........: %i sec\n", conference->group_term_timer);
+    stream->write_function(stream, "Conf term timer..........: %i (sec)\n", conference->conf_term_timer);
+    stream->write_function(stream, "Group term timer.........: %i (sec)\n", conference->group_term_timer);
     stream->write_function(stream, "VAD level................: %i\n", conference->vad_lvl);
     stream->write_function(stream, "CNG level................: %i\n", conference->cng_lvl);
     stream->write_function(stream, "AGC settings.............: %i:%i:%i:%i\n", conference->agc_lvl, conference->agc_low_lvl, conference->agc_change_factor, conference->agc_margin);
@@ -226,11 +224,12 @@ void conference_dump_status(conference_t *conference, switch_stream_handle_t *st
     stream->write_function(stream, "Admin controls...........: %s\n", conference->admin_controls ? conference->admin_controls->name : "n/a");
     stream->write_function(stream, "Playback status..........: %s\n", conference_flag_test(conference, CF_PLAYBACK) ? "active" : "stopped");
     stream->write_function(stream, "Access mode..............: %s\n", conference_flag_test(conference, CF_USE_AUTH) ? "by pin" : "free");
+    stream->write_function(stream, "Status exchange interval.: %i (sec)\n", globals.dm_status_exchange_interval);
+    stream->write_function(stream, "Status update interval...: %i (sec)\n", globals.dm_status_update_interval);
     stream->write_function(stream, "flags....................: ---------\n");
     stream->write_function(stream, "  - trancoding...........: %s\n", conference_flag_test(conference, CF_TRANSCODING) ? "on" : "off");
-    stream->write_function(stream, "  - allow video..........: %s\n", conference_flag_test(conference, CF_ALLOW_VIDEO) ? "on" : "off");
+    stream->write_function(stream, "  - status exchange......: %s\n", conference_flag_test(conference, CF_STATUS_EXCHANGE) ? "on" : "off");
     stream->write_function(stream, "  - alone sound..........: %s\n", conference_flag_test(conference, CF_USE_ALONE_SOUND) ? "on" : "off");
-    stream->write_function(stream, "  - dm status............: %s\n", conference_flag_test(conference, CF_USE_DM_STATUS) ? "on" : "off");
     stream->write_function(stream, "  - vad..................: %s\n", conference_flag_test(conference, CF_USE_VAD) ? "on" : "off");
     stream->write_function(stream, "  - cng..................: %s\n", conference_flag_test(conference, CF_USE_CNG) ? "on" : "off");
     stream->write_function(stream, "  - agc..................: %s\n", conference_flag_test(conference, CF_USE_AGC) ? "on" : "off");
