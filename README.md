@@ -5,15 +5,15 @@
 
 # Basic featues
  - possible to work in two modes standalone and distributed
- - data exchange using multicast or point-to-point communication (with a helper module: mod_udptun)
+ - data exchange using multicast or unicast communication (with a helper module: mod_udptun)
  - encryption and authentication traffic between nodes (optional)
  - load reduction by reuse transcoding results
  - fast lockings and maximum paralleling
  - control by DTMF (separated profiles for admins and users) or console commands
- - protection throug PIN code  (conference, admin/user access)
- - vad, cng, agc and standard functions such as: playback/moh and so on (see commans.c)
+ - protection throug PIN code (conference, admin/user access)
+ - sound playback function for member/conference
  - speakers limit: 25-50 per instance
- - listenes limit: 2000-5000 per instance (low/middle cost vm)
+ - listenes limit: 2000-5000 per instance (low/middle cost vm) / summary upper limit is: 100-200k
  
 # ToDo
 - close parts with 'todo' label
