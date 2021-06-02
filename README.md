@@ -9,8 +9,6 @@
  - encryption and authentication traffic between nodes (optional)
  - load reduction by reuse transcoding results
  - fast lockings and maximum paralleling
- - control by DTMF (separated profiles for admins and users) or console commands
- - protection throug PIN code (conference, admin/user access)
  - speakers limit: 25-50 per instance
  - listeners limit: 2000-5000 per instance (low/middle cost vm) / summary upper limit is: 100k-200k (*)
  
