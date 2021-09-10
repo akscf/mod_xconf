@@ -1,6 +1,6 @@
 /**
  * Copyright (C) AlexandrinKS
- * https://akscf.me/
+ * https://akscf.org/
  **/
 #include "mod_xconf.h"
 
@@ -32,6 +32,7 @@ static switch_status_t listener_join_to_group(member_group_t **group, conference
     switch_memory_pool_t *pool_tmp = NULL;
     member_group_t *tmp_group = NULL;
     uint8_t fl_found = false;
+    uint8_t fl_sem_took = false;
 
     switch_assert(conference);
     switch_assert(member);
@@ -39,6 +40,7 @@ static switch_status_t listener_join_to_group(member_group_t **group, conference
     if(!conference_sem_take(conference)) {
         switch_goto_status(SWITCH_STATUS_GENERR, out);
     }
+    fl_sem_took = true;
 
     switch_mutex_lock(conference->mutex_listeners);
     for (hidx = switch_core_hash_first_iter(conference->listeners, hidx); hidx; hidx = switch_core_hash_next(&hidx)) {
@@ -117,7 +119,9 @@ out:
         }
     }
 
-    conference_sem_release(conference);
+    if(fl_sem_took) {
+        conference_sem_release(conference);
+    }
 
     return status;
 }
@@ -1622,7 +1626,7 @@ SWITCH_STANDARD_API(xconf_cmd_function) {
 
     conference = conference_lookup_by_name(conf_name);
     if(!conference || !conference->fl_ready) {
-        stream->write_function(stream, "-ERR: conference '%s' not exists\n", conf_name);
+        stream->write_function(stream, "-ERR: conference '%s' not found\n", conf_name);
         goto out;
     }
 
@@ -2041,7 +2045,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     /* ------------------------------------------------------------------------------------------------ */
     /* member */
     while(!conference->fl_ready) {
-        if(conference->fl_destroyed || conference->fl_do_destroy) {
+	if(globals.fl_shutdown || conference->fl_destroyed || conference->fl_do_destroy) {
             goto out;
         }
         switch_yield(10000);
@@ -2571,7 +2575,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             if(!name) { continue; }
 
             if(switch_core_hash_find(globals.controls_profiles_hash, name)) {
-                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Duplicated profile name: %s\n", name);
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Duplicate profile name: %s\n", name);
                 continue;
             }
 
@@ -2604,7 +2608,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                 if(!digits || !action) { continue; }
 
                 if(switch_core_hash_find(ctl_profile->actions_hash, digits)) {
-                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Duplicated action: %s (profile: %s)\n", digits, ctl_profile->name);
+                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Duplicate action: %s (profile: %s)\n", digits, ctl_profile->name);
                     continue;
                 }
 
@@ -2646,7 +2650,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             if(!name) { continue; }
 
             if(switch_core_hash_find(globals.conferences_profiles_hash, name)) {
-                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Duplicated profile name: %s\n", name);
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Duplicate profile name: %s\n", name);
                 continue;
             }
 
@@ -2680,12 +2684,8 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
                     conf_profile->transcoding_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "alone-sound-enable")) {
                     conf_profile->alone_sound_enabled = (strcasecmp(val, "true") == 0 ? true : false);
-                } else if(!strcasecmp(var, "alone-sound-enable")) {
-                    conf_profile->alone_sound_enabled = (strcasecmp(val, "true") == 0 ? true : false);
                 } else if(!strcasecmp(var, "status-exchange-enable")) {
                     conf_profile->status_exchange_enabled = (strcasecmp(val, "true") == 0 ? true : false);
-                } else if(!strcasecmp(var, "group-term-timer")) {
-                    conf_profile->group_term_timer = atoi(val);
                 } else if(!strcasecmp(var, "samplerate")) {
                     conf_profile->samplerate = atoi(val);
                 } else if(!strcasecmp(var, "channels")) {

@@ -1,6 +1,6 @@
 /**
  * Copyright (C) AlexandrinKS
- * https://akscf.me/
+ * https://akscf.org/
  **/
 #include "mod_xconf.h"
 extern globals_t globals;

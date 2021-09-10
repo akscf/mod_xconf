@@ -1,8 +1,6 @@
 /**
- * a simple stream cipher based on RC4
- *
  * Copyright (C) AlexandrinKS
- * https://akscf.me/
+ * https://akscf.org/
  **/
 #ifndef XCONF_CIPHER_H
 #define XCONF_CIPHER_H

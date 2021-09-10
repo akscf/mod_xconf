@@ -1,6 +1,6 @@
 /**
  * Copyright (C) AlexandrinKS
- * https://akscf.me/
+ * https://akscf.org/
  **/
 #ifndef MOD_XCONF_H
 #define MOD_XCONF_H
