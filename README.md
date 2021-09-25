@@ -13,7 +13,6 @@
  - listeners limit: 2000-5000 per instance (low/middle cost vm) / summary upper limit is: 100k-200k (*)
  
 # ToDo
-- close parts with 'todo' label
 - rewrite the description
 
 # Performance tests

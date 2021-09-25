@@ -34,6 +34,7 @@
 #define CONF_DEFAULT_LEADIN                     20
 #define VAD_HITS_MAX                            60
 #define VAD_HITS_HALF                           (VAD_HITS_MAX / 2)
+#define DTMF_INTERDIGITS_TO                     2   // sec
 
 #define DM_PAYLOAD_AUDIO                        0xA0
 #define DM_PAYLOAD_ANY                          0xA1

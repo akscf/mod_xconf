@@ -80,11 +80,11 @@ static switch_status_t listener_join_to_group(member_group_t **group, conference
 
     if(!fl_found) {
         if(switch_core_new_memory_pool(&pool_tmp) != SWITCH_STATUS_SUCCESS) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference->name);
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference->name);
             switch_goto_status(SWITCH_STATUS_GENERR, out);
         }
         if((tmp_group = switch_core_alloc(pool_tmp, sizeof(member_group_t))) == NULL) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference->name);
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference->name);
             switch_goto_status(SWITCH_STATUS_GENERR, out);
         }
 
@@ -143,27 +143,27 @@ static void *SWITCH_THREAD_FUNC conference_audio_capture_thread(switch_thread_t 
         goto out;
     }
     if(switch_core_timer_init(&timer, "soft", conference->ptime, conference->samplerate, conference->pool) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: timer fail\n", conference->name);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: timer failed\n", conference->name);
         conference->fl_do_destroy = true;
         goto out;
     }
     if((spk_buffer = switch_core_alloc(conference->pool, AUDIO_BUFFER_SIZE)) == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference->name);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference->name);
         conference->fl_do_destroy = true;
         goto out;
     }
     if((out_buffer = switch_core_alloc(conference->pool, AUDIO_BUFFER_SIZE)) == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference->name);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference->name);
         conference->fl_do_destroy = true;
         goto out;
     }
     if((mix_buffer = switch_core_alloc(conference->pool, AUDIO_BUFFER_SIZE)) == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference->name);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference->name);
         conference->fl_do_destroy = true;
         goto out;
     }
     if((net_buffer = switch_core_alloc(conference->pool, AUDIO_BUFFER_SIZE)) == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference->name);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference->name);
         conference->fl_do_destroy = true;
         goto out;
     }
@@ -486,23 +486,23 @@ static void *SWITCH_THREAD_FUNC conference_group_listeners_control_thread(switch
         goto out;
     }
     if(switch_core_timer_init(&timer, "soft", conference->ptime, conference->samplerate, group->pool) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: timer fail\n", conference->name);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: timer failed\n", conference->name);
         group->fl_do_destroy = true;
         goto out;
     }
     if((enc_buffer = switch_core_alloc(group->pool, AUDIO_BUFFER_SIZE)) == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference->name);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference->name);
         group->fl_do_destroy = true;
         goto out;
     }
     if((src_buffer = switch_core_alloc(group->pool, AUDIO_BUFFER_SIZE)) == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference->name);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference->name);
         group->fl_do_destroy = true;
         goto out;
     }
     if(audio_cache_size) {
         if((audio_cache = switch_core_alloc(group->pool, audio_cache_size)) == NULL) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference->name);
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference->name);
             group->fl_do_destroy = true;
             goto out;
         }
@@ -705,7 +705,7 @@ static void *SWITCH_THREAD_FUNC conference_control_thread(switch_thread_t *threa
 
     if(globals.fl_dm_enabled) {
         if((cur_conf_status = switch_core_alloc(conference->pool, sizeof(node_conference_status_t))) == NULL) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference_name);
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference_name);
             goto out;
         }
     }
@@ -890,13 +890,13 @@ static switch_status_t init_client_socket(switch_socket_t **socket, switch_socka
     switch_assert(pool);
 
     if((status = switch_sockaddr_info_get(&loaddr, globals.dm_local_ip, SWITCH_UNSPEC, 0, 0, pool)) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (cli) (switch_sockaddr_info_get) [#1]\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (cli) (switch_sockaddr_info_get) [#1]\n");
         goto out;
     }
 
     if(globals.dm_mode == DM_MODE_MILTICAST) {
         if((status = switch_sockaddr_info_get(&taddr, globals.dm_multicast_group, SWITCH_UNSPEC, globals.dm_port_out, 0, pool)) != SWITCH_STATUS_SUCCESS) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (cli) (switch_sockaddr_info_get) [#2]\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (cli) (switch_sockaddr_info_get) [#2]\n");
             goto out;
         }
         *dst_addr = taddr;
@@ -904,7 +904,7 @@ static switch_status_t init_client_socket(switch_socket_t **socket, switch_socka
     }
     if(globals.dm_mode == DM_MODE_UNICAST) {
         if((status = switch_sockaddr_info_get(&taddr, globals.dm_remote_ip, SWITCH_UNSPEC, globals.dm_port_out, 0, pool)) != SWITCH_STATUS_SUCCESS) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (cli) (switch_sockaddr_info_get) [#2]\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (cli) (switch_sockaddr_info_get) [#2]\n");
             goto out;
         }
         *dst_addr = taddr;
@@ -912,25 +912,25 @@ static switch_status_t init_client_socket(switch_socket_t **socket, switch_socka
     }
 
     if((status = switch_socket_create(&soc, switch_sockaddr_get_family(loaddr), SOCK_DGRAM, 0, pool)) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (cli) (switch_socket_create)\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (cli) (switch_socket_create)\n");
         goto out;
     }
     if((status = switch_socket_bind(soc, loaddr)) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (cli) (switch_socket_bind)\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (cli) (switch_socket_bind)\n");
         goto out;
     }
 
     if(globals.dm_mode == DM_MODE_MILTICAST) {
         if((status = switch_mcast_interface(soc, loaddr)) != SWITCH_STATUS_SUCCESS) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (cli) (switch_mcast_interface)\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (cli) (switch_mcast_interface)\n");
             goto out;
         }
         if((status = switch_mcast_join(soc, taddr, NULL, NULL)) != SWITCH_STATUS_SUCCESS) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (cli) (switch_mcast_join)\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (cli) (switch_mcast_join)\n");
             goto out;
         }
         if((status = switch_mcast_hops(soc, (uint8_t) DM_MULTICAST_TTL)) != SWITCH_STATUS_SUCCESS) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (cli) (switch_mcast_hops)\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (cli) (switch_mcast_hops)\n");
             goto out;
         }
     }
@@ -951,39 +951,39 @@ static switch_status_t init_server_socket(switch_socket_t **socket, switch_memor
 
     if(globals.dm_mode == DM_MODE_MILTICAST) {
         if((status = switch_sockaddr_info_get(&loaddr, NET_ANYADDR, SWITCH_UNSPEC, globals.dm_port_in, 0, pool)) != SWITCH_STATUS_SUCCESS) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (srv) (switch_sockaddr_info_get) [#1]\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (srv) (switch_sockaddr_info_get) [#1]\n");
             goto out;
         }
         if((status = switch_sockaddr_info_get(&mcaddr, globals.dm_multicast_group, SWITCH_UNSPEC, 0, 0, pool)) != SWITCH_STATUS_SUCCESS) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (srv) (switch_sockaddr_info_get) [#2]\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (srv) (switch_sockaddr_info_get) [#2]\n");
             goto out;
         }
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "server socket: %s:%i (mcast-group: %s)\n", NET_ANYADDR, globals.dm_port_in, globals.dm_multicast_group);
     }
     if(globals.dm_mode == DM_MODE_UNICAST) {
         if((status = switch_sockaddr_info_get(&loaddr, globals.dm_local_ip, SWITCH_UNSPEC, globals.dm_port_in, 0, pool)) != SWITCH_STATUS_SUCCESS) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (srv) (switch_sockaddr_info_get)\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (srv) (switch_sockaddr_info_get)\n");
             goto out;
         }
         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_NOTICE, "server socket: %s:%i\n", globals.dm_local_ip, globals.dm_port_in);
     }
 
     if((status = switch_socket_create(&soc, switch_sockaddr_get_family(loaddr), SOCK_DGRAM, 0, pool)) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (srv) (switch_socket_create)\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (srv) (switch_socket_create)\n");
         goto out;
     }
     if((status = switch_socket_opt_set(soc, SWITCH_SO_REUSEADDR, true)) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (srv) (opt: SWITCH_SO_REUSEADDR)\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (srv) (opt: SWITCH_SO_REUSEADDR)\n");
         goto out;
     }
     if((status = switch_socket_bind(soc, loaddr)) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (srv) (switch_socket_bind)\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (srv) (switch_socket_bind)\n");
         goto out;
     }
 
     if(globals.dm_mode == DM_MODE_MILTICAST) {
         if((status = switch_mcast_join(soc, mcaddr, NULL, NULL)) != SWITCH_STATUS_SUCCESS) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket fail (srv) (switch_mcast_join)\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "socket failed (srv) (switch_mcast_join)\n");
             goto out;
         }
     }
@@ -1014,17 +1014,17 @@ static void *SWITCH_THREAD_FUNC dm_client_thread_any(switch_thread_t *thread, vo
     void *pop = NULL;
 
     if(switch_core_new_memory_pool(&pool) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
         switch_goto_status(SWITCH_STATUS_GENERR, out);
     }
     if((send_buffer = switch_core_alloc(pool, send_buffer_size)) == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
         switch_goto_status(SWITCH_STATUS_GENERR, out);
     }
 
     if(globals.fl_dm_auth_enabled) {
         if((dm_auth_buffer = switch_core_alloc(pool, dm_auth_buffer_len)) == NULL) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
             switch_goto_status(SWITCH_STATUS_GENERR, out);
         }
         switch_stun_random_string((char *)dm_auth_buffer, DM_SALT_SIZE, NULL);
@@ -1033,7 +1033,7 @@ static void *SWITCH_THREAD_FUNC dm_client_thread_any(switch_thread_t *thread, vo
 
     if(globals.fl_dm_encrypt_payload) {
         if((cipher_ctx = switch_core_alloc(pool, sizeof(cipher_ctx_t))) == NULL) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
             switch_goto_status(SWITCH_STATUS_GENERR, out);
         }
         cipher_init(cipher_ctx, globals.dm_shared_secret, strlen(globals.dm_shared_secret));
@@ -1154,17 +1154,17 @@ static void *SWITCH_THREAD_FUNC dm_client_thread_audio(switch_thread_t *thread, 
     void *pop = NULL;
 
     if(switch_core_new_memory_pool(&pool) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
         switch_goto_status(SWITCH_STATUS_GENERR, out);
     }
     if((send_buffer = switch_core_alloc(pool, send_buffer_size)) == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
         switch_goto_status(SWITCH_STATUS_GENERR, out);
     }
 
     if(globals.fl_dm_auth_enabled) {
         if((dm_auth_buffer = switch_core_alloc(pool, dm_auth_buffer_len)) == NULL) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
             switch_goto_status(SWITCH_STATUS_GENERR, out);
         }
         switch_stun_random_string((char *)dm_auth_buffer, DM_SALT_SIZE, NULL);
@@ -1173,7 +1173,7 @@ static void *SWITCH_THREAD_FUNC dm_client_thread_audio(switch_thread_t *thread, 
 
     if(globals.fl_dm_encrypt_payload) {
         if((cipher_ctx = switch_core_alloc(pool, sizeof(cipher_ctx_t))) == NULL) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
             switch_goto_status(SWITCH_STATUS_GENERR, out);
         }
         cipher_init(cipher_ctx, globals.dm_shared_secret, strlen(globals.dm_shared_secret));
@@ -1302,21 +1302,21 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
     int fdr = 0;
 
     if(switch_core_new_memory_pool(&pool) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
         switch_goto_status(SWITCH_STATUS_GENERR, out);
     }
     if(switch_core_inthash_init(&nodes_stats_map) != SWITCH_STATUS_SUCCESS) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
         switch_goto_status(SWITCH_STATUS_GENERR, out);
     }
     if((recv_buffer = switch_core_alloc(pool, recv_buffer_size)) == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
         switch_goto_status(SWITCH_STATUS_GENERR, out);
     }
 
     if(globals.fl_dm_auth_enabled) {
         if((dm_auth_buffer = switch_core_alloc(pool, dm_auth_buffer_len)) == NULL) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
             switch_goto_status(SWITCH_STATUS_GENERR, out);
         }
         memset((void *)dm_auth_buffer, 0x0, DM_SALT_SIZE);
@@ -1325,7 +1325,7 @@ static void *SWITCH_THREAD_FUNC dm_server_thread(switch_thread_t *thread, void *
 
     if(globals.fl_dm_encrypt_payload) {
         if((cipher_ctx = switch_core_alloc(pool, sizeof(cipher_ctx_t))) == NULL) {
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
             switch_goto_status(SWITCH_STATUS_GENERR, out);
         }
         cipher_init(cipher_ctx, globals.dm_shared_secret, strlen(globals.dm_shared_secret));
@@ -1893,7 +1893,8 @@ out:
 
 #define APP_SYNTAX "confName profileName [+-][transcoding|status-xchg|alone-snd|vad|cng|agc]"
 SWITCH_STANDARD_APP(xconf_app_api) {
-    switch_status_t status = SWITCH_STATUS_SUCCESS;
+    switch_status_t conf_status = SWITCH_STATUS_SUCCESS;
+    switch_status_t member_status = SWITCH_STATUS_SUCCESS;
     switch_channel_t *channel = switch_core_session_get_channel(session);
     char *mycmd = NULL, *argv[10] = { 0 }; int argc = 0;
     const char *session_id = NULL;
@@ -1946,19 +1947,19 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             switch_mutex_unlock(globals.mutex_conferences);
             switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "Unknown conference profile: '%s'\n", profile_name);
             switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Profile not found!");
-            switch_goto_status(SWITCH_STATUS_SUCCESS, out);
+            conf_status = SWITCH_STATUS_SUCCESS; goto out;
         }
 
         if(switch_core_new_memory_pool(&pool_tmp) != SWITCH_STATUS_SUCCESS) {
             switch_mutex_unlock(globals.mutex_conferences);
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference_name);
-            switch_goto_status(SWITCH_STATUS_GENERR, out);
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference_name);
+            conf_status = SWITCH_STATUS_GENERR; goto out;
         }
 
         if((conference = switch_core_alloc(pool_tmp, sizeof(conference_t))) == NULL) {
             switch_mutex_unlock(globals.mutex_conferences);
-            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference_name);
-            switch_goto_status(SWITCH_STATUS_GENERR, out);
+            switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference_name);
+            conf_status = SWITCH_STATUS_GENERR; goto out;
         }
 
         switch_mutex_init(&conference->mutex, SWITCH_MUTEX_NESTED, pool_tmp);
@@ -2045,7 +2046,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
     /* ------------------------------------------------------------------------------------------------ */
     /* member */
     while(!conference->fl_ready) {
-	if(globals.fl_shutdown || conference->fl_destroyed || conference->fl_do_destroy) {
+        if(globals.fl_shutdown || conference->fl_destroyed || conference->fl_do_destroy) {
             goto out;
         }
         switch_yield(10000);
@@ -2053,8 +2054,8 @@ SWITCH_STANDARD_APP(xconf_app_api) {
 
     seesion_pool = switch_core_session_get_pool(session);
     if((member = switch_core_alloc(seesion_pool, sizeof(member_t))) == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", conference_name);
-        switch_goto_status(SWITCH_STATUS_GENERR, out);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", conference_name);
+        member_status = SWITCH_STATUS_GENERR; goto out;
     }
 
     member->fl_ready = false;
@@ -2098,7 +2099,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
         goto out;
     }
     if(member->au_buffer == NULL || member->playback_handle == NULL || write_frame.data == NULL || cn_buffer == NULL) {
-        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem fail\n", session_id);
+        switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "%s: mem failed\n", session_id);
         switch_channel_set_variable(channel, SWITCH_CURRENT_APPLICATION_RESPONSE_VARIABLE, "Not enough memory!");
         goto out;
     }
@@ -2180,19 +2181,19 @@ SWITCH_STANDARD_APP(xconf_app_api) {
                 member_playback(member, conference->sound_enter_pin_code, false, pin_code_buffer, sizeof(pin_code_buffer));
                 fl_play_enter_pin = false;
             }
-            status = SWITCH_STATUS_FALSE;
+            member_status = SWITCH_STATUS_FALSE;
             if(strlen(pin_code_buffer) < pin_code_len) {
                 char *p = (pin_code_buffer + strlen(pin_code_buffer));
                 char term = '\0';
 
-                status = switch_ivr_collect_digits_count(session, p, sizeof(pin_code_buffer) - strlen(pin_code_buffer), pin_code_len - strlen(pin_code_buffer), "#", &term, 10000, 0, 0);
-                if(status == SWITCH_STATUS_TIMEOUT) {
-                    status = SWITCH_STATUS_SUCCESS;
+                member_status = switch_ivr_collect_digits_count(session, p, sizeof(pin_code_buffer) - strlen(pin_code_buffer), pin_code_len - strlen(pin_code_buffer), "#", &term, 10000, 0, 0);
+                if(member_status == SWITCH_STATUS_TIMEOUT) {
+                    member_status = SWITCH_STATUS_SUCCESS;
                 }
             } else {
-                status = SWITCH_STATUS_SUCCESS;
+                member_status = SWITCH_STATUS_SUCCESS;
             }
-            if(status == SWITCH_STATUS_SUCCESS) {
+            if(member_status == SWITCH_STATUS_SUCCESS) {
                 if(!zstr(pin_code_buffer)) {
                     if(strcmp(pin_code_buffer, conference->admin_pin_code) == 0) {
                         member_flag_set(member, MF_AUTHORIZED, true);
@@ -2223,7 +2224,7 @@ SWITCH_STANDARD_APP(xconf_app_api) {
             fl_play_welcome = false;
         }
 
-        /* alone sound && moh */
+        /* alone sound & moh */
         if(conference_flag_test(conference, CF_USE_ALONE_SOUND)) {
             if(globals.fl_dm_enabled) {
                 if(conference->fl_total_synced && conference->members_total <= 1) {
@@ -2331,12 +2332,12 @@ SWITCH_STANDARD_APP(xconf_app_api) {
                     dtmf_buf_pos += dtmf_len;
 
                     if(!dtmf_timer && ctl_profile->digits_len_max > 1) {
-                        dtmf_timer = switch_epoch_time_now(NULL) + 1; // delay 1s
+                        dtmf_timer = (switch_epoch_time_now(NULL) + DTMF_INTERDIGITS_TO);
                     }
                     if(dtmf_buf_pos >= ctl_profile->digits_len_max) {
                         dtmf_cmd_buffer[dtmf_buf_pos] = '\0';
                         ctl_action = controls_profile_get_action(ctl_profile, (char *)dtmf_cmd_buffer);
-                        clr_buf = (ctl_action == NULL ? true : false);
+                        clr_buf = (ctl_action == NULL && ctl_profile->digits_len_max == 1 ? true : false);
                     }
                     if(clr_buf) {
                         clr_buf = false;
@@ -2469,7 +2470,7 @@ out:
         conference_sem_release(conference);
     }
 
-    if(status != SWITCH_STATUS_SUCCESS) {
+    if(conf_status != SWITCH_STATUS_SUCCESS) {
         if(pool_tmp) {
             switch_core_destroy_memory_pool(&pool_tmp);
         }
@@ -2581,13 +2582,13 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
 
             /* create a new pool for each profile */
             if (switch_core_new_memory_pool(&tmp_pool) != SWITCH_STATUS_SUCCESS) {
-                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
                 switch_goto_status(SWITCH_STATUS_GENERR, done);
             }
 
             if((ctl_profile = switch_core_alloc(tmp_pool, sizeof(controls_profile_t))) == NULL) {
                 switch_core_destroy_memory_pool(&tmp_pool);
-                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
                 switch_goto_status(SWITCH_STATUS_GENERR, done);
             }
 
@@ -2621,7 +2622,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
 
                 if((profile_action = switch_core_alloc(tmp_pool, sizeof(controls_profile_action_t))) == NULL) {
                     switch_core_destroy_memory_pool(&tmp_pool);
-                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+                    switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
                     switch_goto_status(SWITCH_STATUS_GENERR, done);
                 }
 
@@ -2655,7 +2656,7 @@ SWITCH_MODULE_LOAD_FUNCTION(mod_xconf_load) {
             }
 
             if((conf_profile = switch_core_alloc(pool, sizeof(conference_profile_t))) == NULL) {
-                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem fail\n");
+                switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_ERROR, "mem failed\n");
                 switch_goto_status(SWITCH_STATUS_GENERR, done);
             }
 

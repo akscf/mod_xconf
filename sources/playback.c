@@ -38,15 +38,13 @@ switch_status_t member_playback_stop(member_t *member) {
     if(member_sem_take(member)) {
         if(member_flag_test(member, MF_PLAYBACK)) {
             if(member->playback_handle) {
-                switch_mutex_lock(member->mutex_playback);
-                switch_set_flag(member->playback_handle, SWITCH_FILE_DONE);
-                switch_mutex_unlock(member->mutex_playback);
+                switch_channel_set_flag(switch_core_session_get_channel(member->session), CF_BREAK);
 
                 while(member_flag_test(member, MF_PLAYBACK)) {
                     if(globals.fl_shutdown || member->fl_destroyed) {
                         break;
                     }
-                    if(x > 1000) {
+                    if(x > 500) {
                         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "Couldn't stop playback (member: %s)\n", member->session_id);
                         status = SWITCH_STATUS_FALSE;
                         break;
@@ -98,12 +96,15 @@ switch_status_t member_playback(member_t *member, char *path, uint8_t async, voi
         channel = switch_core_session_get_channel(member->session);
         conference = ((member_group_t *) member->group)->conference;
 
-        /* stop previous sound */
         if(member_flag_test(member, MF_PLAYBACK)) {
             if((status = member_playback_stop(member)) != SWITCH_STATUS_SUCCESS) {
                 member_sem_release(member);
                 goto done;
             }
+        }
+
+        if(switch_channel_test_flag(switch_core_session_get_channel(member->session), CF_BREAK)) {
+            switch_channel_clear_flag(switch_core_session_get_channel(member->session), CF_BREAK);
         }
 
         /* set flags */
@@ -205,7 +206,7 @@ switch_status_t conference_playback_stop(conference_t *conference) {
                     if(globals.fl_shutdown || conference->fl_destroyed) {
                         break;
                     }
-                    if(x > 1000) {
+                    if(x > 500) {
                         switch_log_printf(SWITCH_CHANNEL_LOG, SWITCH_LOG_WARNING, "%s: Couldn't stop playback\n", conference->name);
                         status = SWITCH_STATUS_FALSE;
                         break;
