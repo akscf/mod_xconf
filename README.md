@@ -13,6 +13,7 @@
  - listeners limit: 2000-5000 per instance (low/middle cost vm) / summary upper limit is: 100k-200k (*)
  
 # ToDo
+- TTS support in playback functions
 - rewrite the description
 
 # Performance tests
