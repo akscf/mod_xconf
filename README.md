@@ -11,7 +11,7 @@
     to share media/events between nodes it uses built-in service based on UDP (multicast/unicast) <br>
     the traffic can be encrypted and authenticated that allows to live without VPN and use public networks <br>
     unfortunately the module can not route subscribers and balance the load so you should use some SBC for solve it <br>
-    every instance able to process about 2k-5k listeners and about 25 spreakes [Performance test](http://akscf.org/?page=projects/mod_xconf/perftest) <br>
+    every instance able to process about 2k-5k listeners and about 25 spreakes (see performance tests) <br>
     </li>
   </ul>
   <br>
