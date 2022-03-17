@@ -1,34 +1,34 @@
 <p>
-  First of all, this module was written for provide the certain kind of conferences: when small number of the speakers are broadcasting to a very big number of listeners (it's common in education services) and the number of the latter may vary in a large ranges. This is a truncated version of one proprietary development, by mutual agreement with the customer, we decided to publish it under public domain license, maybe it will be interesting/useful for someone. <br>
+  This module was written to provide the certain kind of conferences: where small number of speakers are broadcasting to a very big number of listeners and number of latest may vary in a large ranges. <br>
   <br>
-  Module can work in 2 modes: <br>
+  The module can operate in two modes: <br>
   <ul>
     <li>
-    <strong>standalone</strong>   - a single instance (1-2 speakers and 1k-2k listeners)
+    <strong>standalone</strong>   - a single instance (~25 speakers and 1k-2k listeners) 
     </li>
     <li>
-    <strong>distributed</strong>  - this is a main mode (multiple Freeswitch instances maintenance a huge conference) <br>
-		   for exchange media/events between nodes this module uses build-in service (and depends on your conditions it can be configured for: multicast or unicast mode) <br>
-		   all the traffic between nodes can be encrypted and authenticated (use public networks without risky) <br>
-		   unfortunately the module doesn't have built-in service to route subscribers between nodes and you should use some SBC for it<br>
+    <strong>distributed</strong>  - where multiple Freeswitch instances maintenance a huge conference(s) <br>
+    to share media/events between nodes it uses built-in service based on UDP (multicast/unicast) <br>
+    the traffic can be encrypted and authenticated that allows to live without VPN and use public networks <br>
+    unfortunately the module can not route subscribers and balance the load so you should use some SBC for solve it <br>
+    every instance able to process about 2k-5k listeners and about 25 spreakes [Performance test](http://akscf.org/?page=projects/mod_xconf/perftest) <br>
     </li>
   </ul>
   <br>
-  A few words about communication: <br>
-  The media streams are sharing without any problems and this mechanism shows good work and short latency, what I can't say about events (there is a bit delay there). 
-  So if you want to have more fast reaction on the events - the best way is rewrite this part and use some external service (such as rabbitmq or so on) <br>
+   A few words about communication: <br>
+   The media streams are sharing without any problems and this mechanism shows low latency and quite well, what I can't say about events (there is a little problems there), <br>
+   therefore if you want to have faster reaction on the events - rewrite this part and use some external tools such as rabbitmq or so on. <br>
 </p>
 
 ### Featues
  - Playback function for members/conferences and MOH sound for alone member 
- - Possibility to give/take a voice to any member in any time (as well as: mute/unmute, deaf/undeaf, so on) 
- - Possibility to invite members to a conference (make an outgoing calls) (*) 
- - Protect a conference via password and authenticate admin by one 
+ - Possible to give/take a voice to any member in any time (as well as: mute/unmute, deaf/undeaf, so on) 
+ - Possible to invite members to a conference (make an outgoing calls) (*) 
+ - Password protection for conference / admin access 
  - Independent controls profiles for admin / users 
  - Lots of DTMF commands and easy way to extend them (see commands.c) 
  - VAD/AGC/CNG (maybe will appear echo suppression) 
- - One instance can to process: 2k-5k listeners and ~25 speakers (see: performance test)
 
 ### Related links
- - [Performance test](https://akscf.org/?page=projects/mod_xconf/perftest)
+ - [Performance test](http://akscf.org/?page=projects/mod_xconf/perftest)
 
