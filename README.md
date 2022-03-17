@@ -16,7 +16,7 @@
   </ul>
   <br>
    A few words about communication: <br>
-   The media streams are sharing without any problems and this mechanism shows low latency and quite well, what I can't say about events (there is a little problems there), <br>
+   The media streams share without any problems and this mechanism shows low latency and quite well, what I can't say about events (there are little problems there), <br>
    therefore if you want to have faster reaction on the events - rewrite this part and use some external tools such as rabbitmq or so on. <br>
 </p>
 
