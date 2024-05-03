@@ -1,6 +1,6 @@
 /**
- * Copyright (C) AlexandrinKS
- * https://akscf.org/
+ * (C)2021 aks
+ * https://github.com/akscf/
  **/
 #ifndef XCONF_CIPHER_H
 #define XCONF_CIPHER_H

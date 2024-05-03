@@ -1,6 +1,6 @@
 /**
- * Copyright (C) AlexandrinKS
- * https://akscf.org/
+ * (C)2021 aks
+ * https://github.com/akscf/
  **/
 #include "mod_xconf.h"
 
